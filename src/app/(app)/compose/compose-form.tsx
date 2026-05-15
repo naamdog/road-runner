@@ -8,12 +8,16 @@ import {
   Calendar,
   Check,
   Clock,
+  ExternalLink,
   Film,
   Hash,
   Info,
   Loader2,
+  Repeat,
+  Sparkles,
   Trash2,
   Upload,
+  X,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -39,9 +43,23 @@ interface Connection {
   accountName: string;
 }
 
+interface PrefillMedia {
+  mediaId: string;
+  url: string;
+  contentType: string;
+  sizeBytes: number;
+  durationMs: number | null;
+  filename: string;
+  thumbnailUrl: string | null;
+}
+
 interface Props {
   connections: Connection[];
   timezone: string;
+  prefillMedia?: PrefillMedia | null;
+  prefillCaption?: string | null;
+  prefillSource?: string | null;
+  prefillPermalink?: string | null;
 }
 
 interface PlatformSchedule {
@@ -54,26 +72,51 @@ type Schedules = Record<Platform, PlatformSchedule>;
 
 const ALL_PLATFORMS = PLATFORMS;
 
-export function ComposeForm({ connections, timezone }: Props) {
+export function ComposeForm({
+  connections,
+  timezone,
+  prefillMedia,
+  prefillCaption,
+  prefillSource,
+  prefillPermalink,
+}: Props) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
 
+  const isRerun = Boolean(prefillMedia || prefillCaption);
+
   const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [duration, setDuration] = useState<number | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(
+    prefillMedia?.url ?? null
+  );
+  const [duration, setDuration] = useState<number | null>(
+    prefillMedia?.durationMs ?? null
+  );
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
-  const [uploadedSize, setUploadedSize] = useState<number | null>(null);
-  const [uploadedContentType, setUploadedContentType] = useState<string | null>(
-    null
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(
+    prefillMedia?.url ?? null
   );
-  const [filename, setFilename] = useState<string | null>(null);
+  const [uploadedSize, setUploadedSize] = useState<number | null>(
+    prefillMedia?.sizeBytes ?? null
+  );
+  const [uploadedContentType, setUploadedContentType] = useState<string | null>(
+    prefillMedia?.contentType ?? null
+  );
+  const [existingMediaId, setExistingMediaId] = useState<string | null>(
+    prefillMedia?.mediaId ?? null
+  );
+  const [filename, setFilename] = useState<string | null>(
+    prefillMedia?.filename ?? null
+  );
 
-  const [caption, setCaption] = useState("");
-  const [schedules, setSchedules] = useState<Schedules>(() => defaultSchedules());
+  const [caption, setCaption] = useState(prefillCaption ?? "");
+  const [schedules, setSchedules] = useState<Schedules>(() =>
+    defaultSchedules(isRerun ? connections.map((c) => c.platform) : [])
+  );
   const [submitting, setSubmitting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [pulledBannerVisible, setPulledBannerVisible] = useState(isRerun);
 
   const selectedPlatforms = ALL_PLATFORMS.filter((p) => schedules[p].enabled);
   const captionMax = selectedPlatforms.length > 0
@@ -83,27 +126,25 @@ export function ComposeForm({ connections, timezone }: Props) {
   const captionOver = caption.length > captionMax;
   const hashtagCount = (caption.match(/#\w+/g) || []).length;
 
-  // Generate preview URL for video
+  // Generate preview URL for newly-uploaded files (not pre-filled).
   useEffect(() => {
-    if (!file) {
-      setPreviewUrl(null);
-      return;
-    }
+    if (!file) return;
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  // Probe duration
+  // Probe duration for newly-uploaded files; pre-fill already has it.
   useEffect(() => {
-    if (!previewUrl) return;
+    if (!previewUrl || existingMediaId) return;
     const v = document.createElement("video");
     v.src = previewUrl;
     v.preload = "metadata";
+    v.crossOrigin = "anonymous";
     v.onloadedmetadata = () => {
       setDuration(Math.round(v.duration * 1000));
     };
-  }, [previewUrl]);
+  }, [previewUrl, existingMediaId]);
 
   async function handleFileChosen(f: File) {
     if (!f.type.startsWith("video/")) {
@@ -119,6 +160,8 @@ export function ComposeForm({ connections, timezone }: Props) {
     setUploadedUrl(null);
     setUploadedSize(null);
     setUploadedContentType(null);
+    setExistingMediaId(null); // we're uploading fresh now
+    setPulledBannerVisible(false);
     void uploadFile(f);
   }
 
@@ -131,7 +174,11 @@ export function ComposeForm({ connections, timezone }: Props) {
       fd.append("file", f);
 
       const xhr = new XMLHttpRequest();
-      const promise = new Promise<{ url: string; size: number; contentType: string }>((resolve, reject) => {
+      const promise = new Promise<{
+        url: string;
+        size: number;
+        contentType: string;
+      }>((resolve, reject) => {
         xhr.open("POST", "/api/upload");
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
@@ -141,9 +188,8 @@ export function ComposeForm({ connections, timezone }: Props) {
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
             try {
-              const json = JSON.parse(xhr.responseText);
-              resolve(json);
-            } catch (e) {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
               reject(new Error("Invalid response"));
             }
           } else {
@@ -188,9 +234,7 @@ export function ComposeForm({ connections, timezone }: Props) {
     setSchedules((prev) => {
       const next = { ...prev };
       for (const p of ALL_PLATFORMS) {
-        if (next[p].enabled) {
-          next[p] = { ...next[p], date, time };
-        }
+        if (next[p].enabled) next[p] = { ...next[p], date, time };
       }
       return next;
     });
@@ -220,7 +264,8 @@ export function ComposeForm({ connections, timezone }: Props) {
   }
 
   async function handleSubmit() {
-    if (!uploadedUrl) {
+    const haveMedia = Boolean(uploadedUrl || existingMediaId);
+    if (!haveMedia) {
       toast.error("Wait for the video to finish uploading.");
       return;
     }
@@ -233,10 +278,8 @@ export function ComposeForm({ connections, timezone }: Props) {
       return;
     }
 
-    // Validate schedules + check missing connections
     const missing: Platform[] = [];
-    const targets: { platform: Platform; scheduledAt: string; connectionId: string | null }[] =
-      [];
+    const targets: { platform: Platform; scheduledAt: string; connectionId: string | null }[] = [];
     for (const p of selectedPlatforms) {
       const { date, time } = schedules[p];
       if (!date || !time) {
@@ -245,9 +288,7 @@ export function ComposeForm({ connections, timezone }: Props) {
       }
       const iso = localToIso(date, time);
       if (new Date(iso).getTime() <= Date.now() + 60_000) {
-        toast.error(
-          `${PLATFORM_META[p].shortName} time must be in the future.`
-        );
+        toast.error(`${PLATFORM_META[p].shortName} time must be in the future.`);
         return;
       }
       const conn = connections.find((c) => c.platform === p);
@@ -261,28 +302,31 @@ export function ComposeForm({ connections, timezone }: Props) {
 
     if (missing.length > 0) {
       toast.warning(
-        `Not connected: ${missing
-          .map((p) => PLATFORM_META[p].shortName)
-          .join(", ")}. We'll save these as drafts.`
+        `Not connected: ${missing.map((p) => PLATFORM_META[p].shortName).join(", ")}. We'll save these as drafts.`
       );
     }
 
     setSubmitting(true);
     try {
+      const body: Record<string, unknown> = {
+        caption,
+        targets,
+      };
+      if (existingMediaId) {
+        body.existingMediaId = existingMediaId;
+      } else {
+        body.media = {
+          url: uploadedUrl,
+          filename: filename || "video.mp4",
+          contentType: uploadedContentType || "video/mp4",
+          sizeBytes: uploadedSize || file?.size || 0,
+          durationMs: duration,
+        };
+      }
       const res = await fetch("/api/posts", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          caption,
-          media: {
-            url: uploadedUrl,
-            filename: filename || "video.mp4",
-            contentType: uploadedContentType || "video/mp4",
-            sizeBytes: uploadedSize || file?.size || 0,
-            durationMs: duration,
-          },
-          targets,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -308,15 +352,65 @@ export function ComposeForm({ connections, timezone }: Props) {
     setDuration(null);
     setCaption("");
     setFilename(null);
-    setSchedules(defaultSchedules());
+    setExistingMediaId(null);
+    setPulledBannerVisible(false);
+    setSchedules(defaultSchedules([]));
   }
 
   return (
     <div className="container-page py-7 max-w-6xl">
-      {/* Header */}
+      {pulledBannerVisible ? (
+        <div className="mb-5 rounded-md border border-brand/30 bg-brand/[0.06] px-4 py-3 flex items-center gap-3">
+          <div className="size-8 rounded-md bg-brand/15 border border-brand/30 flex items-center justify-center shrink-0">
+            <Repeat className="size-4 text-brand" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium">
+              {prefillSource === "library"
+                ? "Re-running from your library — original video and caption ready."
+                : prefillMedia
+                ? `Pulled from ${prefillSource ?? "platform"} — ready to schedule.`
+                : `Caption from ${prefillSource ?? "platform"} pre-filled — upload your video to continue.`}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {connections.length > 0
+                ? "All connected platforms are pre-selected. Adjust times and hit Schedule."
+                : "Connect a platform to start scheduling."}
+            </div>
+          </div>
+          {prefillPermalink ? (
+            <a
+              href={prefillPermalink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-brand hover:underline inline-flex items-center gap-1 shrink-0"
+            >
+              View original
+              <ExternalLink className="size-3" />
+            </a>
+          ) : null}
+          <button
+            onClick={() => setPulledBannerVisible(false)}
+            className="size-7 inline-flex items-center justify-center rounded hover:bg-surface-2 shrink-0"
+            aria-label="Dismiss"
+          >
+            <X className="size-3.5 text-muted-foreground" />
+          </button>
+        </div>
+      ) : null}
+
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">New short</h1>
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            {isRerun ? (
+              <>
+                <Repeat className="size-5 text-brand" />
+                Re-run
+              </>
+            ) : (
+              "New short"
+            )}
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
             One piece, five platforms, five times. Timezone:{" "}
             <span className="text-foreground font-medium">{timezone}</span>
@@ -329,7 +423,7 @@ export function ComposeForm({ connections, timezone }: Props) {
           <Button
             variant="brand"
             onClick={handleSubmit}
-            disabled={submitting || uploading || !uploadedUrl}
+            disabled={submitting || uploading || (!uploadedUrl && !existingMediaId)}
             size="lg"
             className="gap-1.5"
           >
@@ -341,9 +435,7 @@ export function ComposeForm({ connections, timezone }: Props) {
             ) : (
               <>
                 <Zap className="size-4" />
-                Schedule {selectedPlatforms.length > 0
-                  ? `(${selectedPlatforms.length})`
-                  : ""}
+                Schedule {selectedPlatforms.length > 0 ? `(${selectedPlatforms.length})` : ""}
               </>
             )}
           </Button>
@@ -351,7 +443,6 @@ export function ComposeForm({ connections, timezone }: Props) {
       </div>
 
       <div className="grid lg:grid-cols-[340px_1fr] gap-5">
-        {/* Left: Video upload + preview */}
         <div className="space-y-4">
           <Card className="p-0 overflow-hidden">
             {previewUrl ? (
@@ -361,6 +452,7 @@ export function ComposeForm({ connections, timezone }: Props) {
                   className="size-full object-contain"
                   controls
                   playsInline
+                  crossOrigin="anonymous"
                 />
                 {uploading ? (
                   <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
@@ -371,10 +463,11 @@ export function ComposeForm({ connections, timezone }: Props) {
                     <Progress value={uploadProgress} />
                   </div>
                 ) : null}
-                {!uploading && uploadedUrl ? (
+                {!uploading && (uploadedUrl || existingMediaId) ? (
                   <div className="absolute top-3 right-3">
                     <Badge variant="success" className="gap-1">
-                      <Check className="size-3" /> Uploaded
+                      <Check className="size-3" />
+                      {existingMediaId ? "Pulled" : "Uploaded"}
                     </Badge>
                   </div>
                 ) : null}
@@ -424,20 +517,22 @@ export function ComposeForm({ connections, timezone }: Props) {
             }}
           />
 
-          {file ? (
+          {file || existingMediaId ? (
             <Card className="p-4 text-xs space-y-1.5">
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Film className="size-3.5" />
                 <span className="truncate font-mono text-foreground">
-                  {filename}
+                  {filename || "(re-runner source)"}
                 </span>
               </div>
-              <div className="flex items-center justify-between text-muted-foreground">
-                <span>Size</span>
-                <span className="font-mono text-foreground">
-                  {formatBytes(file.size)}
-                </span>
-              </div>
+              {uploadedSize ? (
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>Size</span>
+                  <span className="font-mono text-foreground">
+                    {formatBytes(uploadedSize)}
+                  </span>
+                </div>
+              ) : null}
               {duration ? (
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span>Duration</span>
@@ -458,15 +553,11 @@ export function ComposeForm({ connections, timezone }: Props) {
           ) : null}
         </div>
 
-        {/* Right: Caption + platforms + schedule */}
         <div className="space-y-5">
-          {/* Caption */}
           <Card>
             <div className="p-5 pb-3 flex items-center justify-between">
               <div>
-                <h2 className="text-base font-semibold tracking-tight">
-                  Caption
-                </h2>
+                <h2 className="text-base font-semibold tracking-tight">Caption</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   One caption for all platforms — pre-flighted against each limit.
                 </p>
@@ -511,7 +602,9 @@ export function ComposeForm({ connections, timezone }: Props) {
                         )}
                       >
                         <PlatformIcon platform={p} size={12} />
-                        <span>{meta.shortName}: {caption.length}/{meta.maxCaptionLength}</span>
+                        <span>
+                          {meta.shortName}: {caption.length}/{meta.maxCaptionLength}
+                        </span>
                       </div>
                     );
                   })}
@@ -520,7 +613,6 @@ export function ComposeForm({ connections, timezone }: Props) {
             </div>
           </Card>
 
-          {/* Platforms + times */}
           <Card>
             <div className="p-5 pb-3 flex items-start justify-between gap-3">
               <div>
@@ -591,9 +683,7 @@ export function ComposeForm({ connections, timezone }: Props) {
                           disabled={!s.enabled}
                           value={s.date}
                           min={toDateInput(new Date())}
-                          onChange={(e) =>
-                            updateSchedule(p, { date: e.target.value })
-                          }
+                          onChange={(e) => updateSchedule(p, { date: e.target.value })}
                           className={cn(
                             "h-9 rounded-md border border-border bg-surface pl-8 pr-2.5 text-sm",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:border-brand/60",
@@ -608,9 +698,7 @@ export function ComposeForm({ connections, timezone }: Props) {
                           type="time"
                           disabled={!s.enabled}
                           value={s.time}
-                          onChange={(e) =>
-                            updateSchedule(p, { time: e.target.value })
-                          }
+                          onChange={(e) => updateSchedule(p, { time: e.target.value })}
                           className={cn(
                             "h-9 rounded-md border border-border bg-surface pl-8 pr-2.5 text-sm",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:border-brand/60",
@@ -653,13 +741,21 @@ export function ComposeForm({ connections, timezone }: Props) {
             ) : null}
           </Card>
 
-          {/* Help row */}
           <div className="rounded-md bg-surface/40 border border-border px-4 py-3 flex items-start gap-2.5">
             <Info className="size-4 text-muted-foreground mt-0.5 shrink-0" />
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Short-form best practice: stagger by 2–6 hours so the same hook
-              lands fresh on each platform. The first 3 seconds matter most —
-              hook before the swipe.
+              {isRerun ? (
+                <>
+                  Re-runs work best with a fresh hook. Try tweaking the first 1–2
+                  seconds and the first line of the caption before scheduling.
+                </>
+              ) : (
+                <>
+                  Short-form best practice: stagger by 2–6 hours so the same hook
+                  lands fresh on each platform. The first 3 seconds matter most —
+                  hook before the swipe.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -670,13 +766,14 @@ export function ComposeForm({ connections, timezone }: Props) {
 
 // --- helpers ---
 
-function defaultSchedules(): Schedules {
+function defaultSchedules(autoEnable: Platform[]): Schedules {
+  const enable = new Set(autoEnable);
   const base = nextMorning();
   const obj = {} as Schedules;
   ALL_PLATFORMS.forEach((p, i) => {
     const t = new Date(base.getTime() + i * 3 * 60 * 60 * 1000);
     obj[p] = {
-      enabled: false,
+      enabled: enable.has(p),
       date: toDateInput(t),
       time: toTimeInput(t),
     };
@@ -699,10 +796,7 @@ function toDateInput(d: Date): string {
 }
 
 function toTimeInput(d: Date): string {
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(
-    2,
-    "0"
-  )}`;
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function localToIso(date: string, time: string): string {

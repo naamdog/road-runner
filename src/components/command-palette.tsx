@@ -8,6 +8,7 @@ import {
   Plus,
   CalendarDays,
   Link2,
+  Repeat,
   Settings,
   LogOut,
   Search,
@@ -60,6 +61,7 @@ export function CommandPalette({
         if (k === "d") router.push("/dashboard");
         else if (k === "s") router.push("/scheduled");
         else if (k === "c") router.push("/connections");
+        else if (k === "r") router.push("/re-runner");
         else if (k === "n") router.push("/compose");
         return;
       }
@@ -132,6 +134,12 @@ export function CommandPalette({
               shortcut="C"
               onSelect={() => go("/compose")}
             />
+            <Item
+              icon={Repeat}
+              label="Re-run a top performer"
+              shortcut="G R"
+              onSelect={() => go("/re-runner")}
+            />
           </Command.Group>
 
           <Command.Group heading="Navigate" className="text-xs uppercase tracking-wider text-subtle-foreground px-2 pt-3 pb-1">
@@ -140,6 +148,12 @@ export function CommandPalette({
               label="Dashboard"
               shortcut="G D"
               onSelect={() => go("/dashboard")}
+            />
+            <Item
+              icon={Repeat}
+              label="Re-runner"
+              shortcut="G R"
+              onSelect={() => go("/re-runner")}
             />
             <Item
               icon={CalendarDays}

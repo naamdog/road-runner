@@ -13,20 +13,27 @@ const targetSchema = z.object({
   connectionId: z.string().nullable().optional(),
 });
 
-const bodySchema = z.object({
-  caption: z.string().max(63206),
-  title: z.string().max(200).optional().nullable(),
-  media: z.object({
-    url: z.string().url(),
-    filename: z.string(),
-    contentType: z.string(),
-    sizeBytes: z.number().nonnegative(),
-    durationMs: z.number().int().nullable().optional(),
-    width: z.number().int().optional(),
-    height: z.number().int().optional(),
-  }),
-  targets: z.array(targetSchema).min(1).max(20),
+const mediaSchema = z.object({
+  url: z.string().url(),
+  filename: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().nonnegative(),
+  durationMs: z.number().int().nullable().optional(),
+  width: z.number().int().optional(),
+  height: z.number().int().optional(),
 });
+
+const bodySchema = z
+  .object({
+    caption: z.string().max(63206),
+    title: z.string().max(200).optional().nullable(),
+    media: mediaSchema.optional(),
+    existingMediaId: z.string().optional(),
+    targets: z.array(targetSchema).min(1).max(20),
+  })
+  .refine((b) => Boolean(b.media || b.existingMediaId), {
+    message: "Either media or existingMediaId is required",
+  });
 
 export async function POST(req: NextRequest) {
   const session = await getSession();
@@ -36,8 +43,7 @@ export async function POST(req: NextRequest) {
 
   let parsed: z.infer<typeof bodySchema>;
   try {
-    const json = await req.json();
-    parsed = bodySchema.parse(json);
+    parsed = bodySchema.parse(await req.json());
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Invalid body" },
@@ -57,31 +63,44 @@ export async function POST(req: NextRequest) {
     const owned = new Set(rows.map((r) => r.id));
     for (const id of ids) {
       if (!owned.has(id)) {
-        return NextResponse.json(
-          { error: "Connection not found" },
-          { status: 403 }
-        );
+        return NextResponse.json({ error: "Connection not found" }, { status: 403 });
       }
     }
   }
 
   const userId = session.user.id;
-  const mediaId = nanoid();
+  let mediaId: string;
+
+  if (parsed.existingMediaId) {
+    const [m] = await db
+      .select({ id: media.id })
+      .from(media)
+      .where(
+        and(eq(media.id, parsed.existingMediaId), eq(media.userId, userId))
+      );
+    if (!m) {
+      return NextResponse.json({ error: "Media not found" }, { status: 404 });
+    }
+    mediaId = m.id;
+  } else if (parsed.media) {
+    mediaId = nanoid();
+    await db.insert(media).values({
+      id: mediaId,
+      userId,
+      blobUrl: parsed.media.url,
+      blobPath: parsed.media.url.split("/").slice(-2).join("/"),
+      filename: parsed.media.filename,
+      contentType: parsed.media.contentType,
+      sizeBytes: parsed.media.sizeBytes,
+      durationMs: parsed.media.durationMs ?? null,
+      width: parsed.media.width ?? null,
+      height: parsed.media.height ?? null,
+    });
+  } else {
+    return NextResponse.json({ error: "Missing media" }, { status: 400 });
+  }
+
   const postId = nanoid();
-
-  await db.insert(media).values({
-    id: mediaId,
-    userId,
-    blobUrl: parsed.media.url,
-    blobPath: parsed.media.url.split("/").slice(-2).join("/"),
-    filename: parsed.media.filename,
-    contentType: parsed.media.contentType,
-    sizeBytes: parsed.media.sizeBytes,
-    durationMs: parsed.media.durationMs ?? null,
-    width: parsed.media.width ?? null,
-    height: parsed.media.height ?? null,
-  });
-
   await db.insert(post).values({
     id: postId,
     userId,

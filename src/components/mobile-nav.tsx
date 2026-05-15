@@ -8,6 +8,7 @@ import {
   Plus,
   CalendarDays,
   Link2,
+  Repeat,
   Settings,
   Menu,
   X,
@@ -18,6 +19,7 @@ import { cn } from "@/lib/utils";
 const items = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/compose", label: "Compose", icon: Plus, primary: true },
+  { href: "/re-runner", label: "Re-runner", icon: Repeat },
   { href: "/scheduled", label: "Scheduled", icon: CalendarDays },
   { href: "/connections", label: "Connections", icon: Link2 },
   { href: "/settings", label: "Settings", icon: Settings },

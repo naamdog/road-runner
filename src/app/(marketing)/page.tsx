@@ -224,6 +224,11 @@ function HowItWorks() {
 function Features() {
   const features = [
     {
+      title: "Re-runner — your hits, re-fired.",
+      body: "Pulls your top-performing shorts from every platform, ranked by views. One click downloads the original and queues a re-run.",
+      featured: true,
+    },
+    {
       title: "One caption, every platform.",
       body: "Write it once. We pre-flight character counts, hashtag caps, and content rules per platform.",
     },
@@ -260,11 +265,20 @@ function Features() {
           {features.map((f) => (
             <div
               key={f.title}
-              className="rounded-xl border border-border bg-surface/50 p-5 hover:bg-surface/80 transition-colors"
+              className={`rounded-xl border p-5 transition-colors ${
+                f.featured
+                  ? "border-brand/40 bg-brand/[0.04] hover:bg-brand/[0.06] md:col-span-2 lg:col-span-1 lg:row-span-1"
+                  : "border-border bg-surface/50 hover:bg-surface/80"
+              }`}
             >
-              <div className="size-1.5 rounded-full bg-brand" />
+              <div className={`size-1.5 rounded-full ${f.featured ? "bg-brand" : "bg-brand"}`} />
               <h3 className="mt-4 text-base font-semibold tracking-tight">{f.title}</h3>
               <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{f.body}</p>
+              {f.featured ? (
+                <div className="mt-4 inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-brand font-semibold">
+                  New
+                </div>
+              ) : null}
             </div>
           ))}
         </div>

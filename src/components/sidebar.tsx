@@ -7,6 +7,7 @@ import {
   Plus,
   CalendarDays,
   Link2,
+  Repeat,
   Settings,
   HelpCircle,
   Keyboard,
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 const items = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, shortcut: "G D" },
   { href: "/compose", label: "Compose", icon: Plus, primary: true, shortcut: "C" },
+  { href: "/re-runner", label: "Re-runner", icon: Repeat, shortcut: "G R" },
   { href: "/scheduled", label: "Scheduled", icon: CalendarDays, shortcut: "G S" },
   { href: "/connections", label: "Connections", icon: Link2, shortcut: "G C" },
 ];
