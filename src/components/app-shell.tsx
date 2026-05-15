@@ -4,8 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { Plus, Search } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
+import { MobileNav } from "@/components/mobile-nav";
 import { UserMenu } from "@/components/user-menu";
 import { CommandPalette } from "@/components/command-palette";
+import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 
 export function AppShell({
@@ -41,12 +43,13 @@ function TopBar({
 }) {
   return (
     <header className="sticky top-0 z-30 h-14 border-b border-border bg-background/80 backdrop-blur-xl flex items-center px-4 lg:px-6 gap-3">
-      <div className="lg:hidden">
-        {/* mobile logo */}
-        <Link href="/dashboard" className="flex items-center font-semibold">
-          RR
-        </Link>
-      </div>
+      <MobileNav />
+      <Link
+        href="/dashboard"
+        className="lg:hidden flex items-center"
+      >
+        <Logo size={24} />
+      </Link>
       <button
         onClick={onOpenPalette}
         className="flex-1 max-w-md group flex items-center gap-2 rounded-md border border-border bg-surface/70 px-3 py-1.5 text-sm text-muted-foreground hover:bg-surface-2 hover:border-border-strong transition-colors"
