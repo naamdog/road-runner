@@ -4,14 +4,46 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@theme {
-  /* Brand */
+/* --- Raw color tokens (defaults = light mode) --- */
+:root {
+  /* Brand stays the same in both themes */
   --color-brand: #ccff00;
   --color-brand-foreground: #0a0a0b;
   --color-brand-muted: #aadc00;
   --color-brand-glow: #ccff0033;
 
-  /* Surfaces */
+  /* Surfaces — light defaults */
+  --color-background: #ffffff;
+  --color-surface: #fafafa;
+  --color-surface-2: #f4f4f5;
+  --color-surface-3: #e4e4e7;
+  --color-border: #e4e4e7;
+  --color-border-strong: #d4d4d8;
+
+  /* Text — light defaults */
+  --color-foreground: #18181b;
+  --color-muted-foreground: #71717a;
+  --color-subtle-foreground: #a1a1aa;
+
+  /* States */
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-destructive: #dc2626;
+  --color-info: #2563eb;
+
+  /* Brand gradient (text effect) — darker in light mode for contrast */
+  --color-brand-text-from: #6f9e00;
+  --color-brand-text-via: #8fc100;
+  --color-brand-text-to: #6f9e00;
+
+  /* Pattern overlay tint */
+  --color-pattern: #d4d4d8;
+
+  color-scheme: light;
+}
+
+/* --- Dark mode overrides --- */
+.dark {
   --color-background: #08090a;
   --color-surface: #0e0f11;
   --color-surface-2: #15171a;
@@ -19,18 +51,47 @@
   --color-border: #26292e;
   --color-border-strong: #353941;
 
-  /* Text */
   --color-foreground: #f7f7f8;
   --color-muted-foreground: #9ca0a8;
   --color-subtle-foreground: #6c707a;
 
-  /* States */
   --color-success: #2bd472;
   --color-warning: #ffb02a;
   --color-destructive: #ff4d4f;
   --color-info: #4fb3ff;
 
-  /* Platforms */
+  --color-brand-text-from: #ccff00;
+  --color-brand-text-via: #eaff7a;
+  --color-brand-text-to: #ccff00;
+
+  --color-pattern: #26292e;
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-brand: var(--color-brand);
+  --color-brand-foreground: var(--color-brand-foreground);
+  --color-brand-muted: var(--color-brand-muted);
+  --color-brand-glow: var(--color-brand-glow);
+
+  --color-background: var(--color-background);
+  --color-surface: var(--color-surface);
+  --color-surface-2: var(--color-surface-2);
+  --color-surface-3: var(--color-surface-3);
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+
+  --color-foreground: var(--color-foreground);
+  --color-muted-foreground: var(--color-muted-foreground);
+  --color-subtle-foreground: var(--color-subtle-foreground);
+
+  --color-success: var(--color-success);
+  --color-warning: var(--color-warning);
+  --color-destructive: var(--color-destructive);
+  --color-info: var(--color-info);
+
+  /* Platforms — these don't change between themes */
   --color-platform-youtube: #ff0033;
   --color-platform-instagram: #e1306c;
   --color-platform-tiktok: #ff0050;
@@ -82,7 +143,6 @@
   }
 
   html {
-    color-scheme: dark;
     background: var(--color-background);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -96,20 +156,17 @@
     font-feature-settings: "ss01", "cv11";
   }
 
-  /* Selection */
   ::selection {
     background: var(--color-brand);
     color: var(--color-brand-foreground);
   }
 
-  /* Focus ring */
   :focus-visible {
     outline: 2px solid var(--color-brand);
     outline-offset: 2px;
     border-radius: var(--radius-sm);
   }
 
-  /* Scrollbar */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -126,32 +183,28 @@
     background: var(--color-border-strong);
   }
 
-  /* Type hierarchy */
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
     letter-spacing: -0.02em;
     font-weight: 600;
   }
 
-  /* Tabular numerals for stats / timestamps */
   .tabular-nums {
     font-variant-numeric: tabular-nums;
   }
 
-  /* Grid/dot pattern utility */
   .bg-grid {
     background-image:
-      linear-gradient(to right, color-mix(in oklab, var(--color-border) 60%, transparent) 1px, transparent 1px),
-      linear-gradient(to bottom, color-mix(in oklab, var(--color-border) 60%, transparent) 1px, transparent 1px);
+      linear-gradient(to right, color-mix(in oklab, var(--color-pattern) 60%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--color-pattern) 60%, transparent) 1px, transparent 1px);
     background-size: 48px 48px;
   }
 
   .bg-dot {
-    background-image: radial-gradient(circle at 1px 1px, var(--color-border) 1px, transparent 0);
+    background-image: radial-gradient(circle at 1px 1px, var(--color-pattern) 1px, transparent 0);
     background-size: 22px 22px;
   }
 
-  /* Subtle noise overlay */
   .noise::before {
     content: "";
     position: absolute;
@@ -162,9 +215,13 @@
     mix-blend-mode: overlay;
   }
 
-  /* Lime gradient text */
   .gradient-brand {
-    background: linear-gradient(135deg, #ccff00 0%, #eaff7a 50%, #ccff00 100%);
+    background: linear-gradient(
+      135deg,
+      var(--color-brand-text-from) 0%,
+      var(--color-brand-text-via) 50%,
+      var(--color-brand-text-to) 100%
+    );
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;

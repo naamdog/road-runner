@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Logo, LogoMark } from "@/components/logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function AuthLayout({
   children,
@@ -17,10 +18,11 @@ export default function AuthLayout({
         className="absolute left-1/2 top-1/3 -translate-x-1/2 -translate-y-1/2 size-[600px] rounded-full bg-brand/[0.05] blur-3xl pointer-events-none"
       />
 
-      <header className="relative px-6 py-5">
+      <header className="relative px-6 py-5 flex items-center justify-between">
         <Link href="/" className="inline-flex">
           <Logo size={26} showWordmark />
         </Link>
+        <ThemeToggle variant="icon-sm" />
       </header>
 
       <main className="relative flex-1 flex items-center justify-center px-6 pb-16">

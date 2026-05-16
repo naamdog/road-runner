@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -21,7 +22,10 @@ const APP_DESC =
   "Schedule once. Run everywhere. The fastest way to publish short-form video to YouTube, Instagram, TikTok, LinkedIn, and Facebook on your own clock.";
 
 export const viewport: Viewport = {
-  themeColor: "#08090a",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#08090a" },
+  ],
   width: "device-width",
   initialScale: 1,
 };
@@ -75,14 +79,16 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <TooltipProvider delayDuration={200}>
-          {children}
-        </TooltipProvider>
-        <Toaster />
+        <ThemeProvider>
+          <TooltipProvider delayDuration={200}>
+            {children}
+          </TooltipProvider>
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );

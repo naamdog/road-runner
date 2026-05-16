@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { ArrowUpRight } from "lucide-react";
 
 export default function MarketingLayout({
@@ -46,6 +47,7 @@ function Header() {
           </Link>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggle variant="icon-sm" />
           <Button variant="ghost" size="sm" asChild>
             <Link href="/login">Sign in</Link>
           </Button>

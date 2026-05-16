@@ -10,6 +10,7 @@ import { CommandPalette } from "@/components/command-palette";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { BrandSwitcher, type BrandLite } from "@/components/brand-switcher";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export function AppShell({
   user,
@@ -75,6 +76,7 @@ function TopBar({
         </span>
       </button>
       <div className="flex items-center gap-2 ml-auto">
+        <ThemeToggle variant="icon-sm" />
         <Button asChild variant="brand" size="sm">
           <Link href="/compose" className="gap-1.5">
             <Plus className="size-3.5" />
