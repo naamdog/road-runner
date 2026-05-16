@@ -10,18 +10,23 @@ export interface LongFormInput {
   visibility: "public" | "unlisted" | "private";
   madeForKids: boolean;
   thumbnailUrl: string | null;
+  /** Optional YouTube playlist id — video is appended after upload. */
+  playlistId?: string | null;
 }
 
 export interface LongFormResult {
   videoId: string;
   videoUrl: string;
+  /** Best-effort: whether the playlist add succeeded. */
+  addedToPlaylist?: boolean;
 }
 
 /**
  * Publish a long-form video to YouTube via Data API v3.
  *
  * Differs from the Shorts publisher: takes full title / description / tags /
- * category / visibility, and optionally sets a custom thumbnail.
+ * category / visibility, sets optional custom thumbnail, and can append to a
+ * playlist after publish.
  */
 export async function publishYouTubeLongform(
   input: LongFormInput
@@ -118,12 +123,42 @@ export async function publishYouTubeLongform(
         );
       }
     } catch {
-      // Don't fail the whole publish if thumbnail fails — surface separately.
+      // Don't fail the whole publish if thumbnail fails.
+    }
+  }
+
+  // 5. Optional: add to playlist (best-effort — playlist might be missing)
+  let addedToPlaylist = false;
+  if (input.playlistId) {
+    try {
+      const plRes = await fetch(
+        "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${input.accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            snippet: {
+              playlistId: input.playlistId,
+              resourceId: {
+                kind: "youtube#video",
+                videoId,
+              },
+            },
+          }),
+        }
+      );
+      addedToPlaylist = plRes.ok;
+    } catch {
+      // ignore — video is published regardless
     }
   }
 
   return {
     videoId,
     videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
+    addedToPlaylist,
   };
 }

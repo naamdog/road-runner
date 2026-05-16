@@ -181,6 +181,7 @@ async function processTubeRunner(now: Date) {
       categoryId: tubePost.categoryId,
       visibility: tubePost.visibility,
       madeForKids: tubePost.madeForKids,
+      playlistId: tubePost.playlistId,
     })
     .from(tubePost)
     .where(
@@ -238,6 +239,7 @@ async function processTubeRunner(now: Date) {
         visibility: row.visibility as "public" | "unlisted" | "private",
         madeForKids: row.madeForKids,
         thumbnailUrl: row.thumbnailUrl,
+        playlistId: row.playlistId,
       });
 
       await db

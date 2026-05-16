@@ -29,6 +29,7 @@ const bodySchema = z
     media: mediaSchema.optional(),
     existingMediaId: z.string().optional(),
     thumbnailUrl: z.string().url().nullable().optional(),
+    playlistId: z.string().nullable().optional(),
     brandId: z.string().optional(),
   })
   .refine((b) => Boolean(b.media || b.existingMediaId), {
@@ -135,6 +136,7 @@ export async function POST(req: NextRequest) {
     categoryId: parsed.categoryId,
     visibility: parsed.visibility,
     madeForKids: parsed.madeForKids,
+    playlistId: parsed.playlistId ?? null,
     scheduledAt,
     status: "scheduled",
   });

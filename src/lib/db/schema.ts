@@ -259,6 +259,8 @@ export const tubePost = pgTable(
     categoryId: text("category_id").default("22").notNull(),
     visibility: tubePostVisibilityEnum("visibility").notNull().default("public"),
     madeForKids: boolean("made_for_kids").notNull().default(false),
+    /** Optional YouTube playlist id to add the video to after upload. */
+    playlistId: text("playlist_id"),
 
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
     status: postStatusEnum("status").notNull().default("scheduled"),

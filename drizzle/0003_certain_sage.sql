@@ -1,0 +1,1 @@
+ALTER TABLE "tube_post" ADD COLUMN "playlist_id" text;
