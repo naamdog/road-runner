@@ -15,6 +15,13 @@
       "when": 1778895949383,
       "tag": "0001_fair_the_anarchist",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778899730933,
+      "tag": "0002_clever_abomination",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import {
   Settings,
   LogOut,
   Search,
+  Tv,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -64,6 +65,7 @@ export function CommandPalette({
         else if (k === "a") router.push("/connections");
         else if (k === "r") router.push("/re-runner");
         else if (k === "b") router.push("/brands");
+        else if (k === "t") router.push("/tube");
         else if (k === "n") router.push("/compose");
         return;
       }
@@ -137,6 +139,11 @@ export function CommandPalette({
               onSelect={() => go("/compose")}
             />
             <Item
+              icon={Tv}
+              label="New long video (TubeRunner)"
+              onSelect={() => go("/tube/compose")}
+            />
+            <Item
               icon={Repeat}
               label="Re-run a top performer"
               shortcut="G R"
@@ -150,6 +157,12 @@ export function CommandPalette({
               label="Home"
               shortcut="G D"
               onSelect={() => go("/dashboard")}
+            />
+            <Item
+              icon={Tv}
+              label="TubeRunner"
+              shortcut="G T"
+              onSelect={() => go("/tube")}
             />
             <Item
               icon={Repeat}

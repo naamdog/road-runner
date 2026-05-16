@@ -66,7 +66,7 @@ export function BrandSwitcher({
         <button
           className={cn(
             "inline-flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm hover:bg-surface-2 hover:border-border-strong transition-colors",
-            compact ? "max-w-[180px]" : "max-w-[260px]",
+            compact ? "max-w-[180px]" : "max-w-[140px] sm:max-w-[220px]",
             pending && "opacity-60"
           )}
         >

@@ -9,6 +9,7 @@ import {
   Link2,
   Repeat,
   Settings,
+  Tv,
   Users,
   Keyboard,
 } from "lucide-react";
@@ -17,7 +18,8 @@ import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard, shortcut: "G D" },
-  { href: "/compose", label: "New post", icon: Plus, primary: true, shortcut: "C" },
+  { href: "/compose", label: "New short", icon: Plus, primary: true, shortcut: "C" },
+  { href: "/tube", label: "TubeRunner", icon: Tv, shortcut: "G T" },
   { href: "/re-runner", label: "Re-runner", icon: Repeat, shortcut: "G R" },
   { href: "/scheduled", label: "Lined up", icon: CalendarDays, shortcut: "G S" },
   { href: "/connections", label: "Accounts", icon: Link2, shortcut: "G A" },

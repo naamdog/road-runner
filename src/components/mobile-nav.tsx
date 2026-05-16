@@ -10,6 +10,7 @@ import {
   Link2,
   Repeat,
   Settings,
+  Tv,
   Users,
   Menu,
   X,
@@ -19,7 +20,8 @@ import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/compose", label: "New post", icon: Plus, primary: true },
+  { href: "/compose", label: "New short", icon: Plus, primary: true },
+  { href: "/tube", label: "TubeRunner", icon: Tv },
   { href: "/re-runner", label: "Re-runner", icon: Repeat },
   { href: "/scheduled", label: "Lined up", icon: CalendarDays },
   { href: "/connections", label: "Accounts", icon: Link2 },

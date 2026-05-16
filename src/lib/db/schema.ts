@@ -227,9 +227,65 @@ export const postTarget = pgTable(
   ]
 );
 
+/** TubeRunner: long-form YouTube posts. Separate from `post` because the
+ * shape is different — single platform (YouTube), rich metadata (title,
+ * description, tags, category, thumbnail), and no per-platform fanout. */
+export const tubePostVisibilityEnum = pgEnum("tube_post_visibility", [
+  "public",
+  "unlisted",
+  "private",
+]);
+
+export const tubePost = pgTable(
+  "tube_post",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    brandId: text("brand_id").references(() => brand.id, { onDelete: "set null" }),
+    connectionId: text("connection_id").references(() => connection.id, {
+      onDelete: "set null",
+    }),
+    mediaId: text("media_id").references(() => media.id, { onDelete: "set null" }),
+    /** Optional custom thumbnail blob URL. */
+    thumbnailUrl: text("thumbnail_url"),
+
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    /** YouTube tags as a JSON array of strings. */
+    tags: json("tags").$type<string[]>().default([]),
+    /** YouTube category id (e.g. "22" = People & Blogs). */
+    categoryId: text("category_id").default("22").notNull(),
+    visibility: tubePostVisibilityEnum("visibility").notNull().default("public"),
+    madeForKids: boolean("made_for_kids").notNull().default(false),
+
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+    status: postStatusEnum("status").notNull().default("scheduled"),
+    publishedUrl: text("published_url"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    youtubeVideoId: text("youtube_video_id"),
+
+    attempts: integer("attempts").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    lastError: text("last_error"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("tube_post_user_idx").on(t.userId),
+    index("tube_post_brand_idx").on(t.brandId),
+    index("tube_post_scheduled_idx").on(t.scheduledAt),
+    index("tube_post_status_idx").on(t.status),
+  ]
+);
+
 export type User = typeof user.$inferSelect;
 export type Brand = typeof brand.$inferSelect;
 export type Connection = typeof connection.$inferSelect;
 export type Media = typeof media.$inferSelect;
 export type Post = typeof post.$inferSelect;
 export type PostTarget = typeof postTarget.$inferSelect;
+export type TubePost = typeof tubePost.$inferSelect;
