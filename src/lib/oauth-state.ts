@@ -10,6 +10,7 @@ const secret = () =>
 export function signState(payload: {
   userId: string;
   platform: string;
+  brandId: string;
   nonce?: string;
 }): { state: string; codeVerifier: string } {
   const data = {
@@ -26,6 +27,7 @@ export function signState(payload: {
 export function verifyState(state: string): {
   userId: string;
   platform: string;
+  brandId: string;
   nonce: string;
   iat: number;
 } | null {

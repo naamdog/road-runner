@@ -7,10 +7,23 @@ import { requireUser } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { LibraryGrid } from "./library-grid";
+import { getOrCreateBrands } from "@/lib/brands";
+import { readActiveBrandCookie } from "@/lib/active-brand";
 
 export async function ReRunnerLibrary() {
   const session = await requireUser();
   const userId = session.user.id;
+
+  const brands = await getOrCreateBrands(userId);
+  const cookieValue = await readActiveBrandCookie();
+  const activeBrand =
+    brands.find((b) => b.id === cookieValue) ??
+    brands.find((b) => b.isDefault) ??
+    brands[0];
+
+  const where = activeBrand
+    ? and(eq(media.userId, userId), eq(post.brandId, activeBrand.id))
+    : eq(media.userId, userId);
 
   const rows = await db
     .select({
@@ -36,7 +49,7 @@ export async function ReRunnerLibrary() {
         eq(postTarget.status, "published")
       )
     )
-    .where(eq(media.userId, userId))
+    .where(where)
     .groupBy(media.id, post.id)
     .orderBy(desc(media.createdAt))
     .limit(24);
@@ -63,15 +76,15 @@ export async function ReRunnerLibrary() {
         <div className="size-11 mx-auto rounded-md bg-surface-2 border border-border flex items-center justify-center">
           <LibraryIcon className="size-5 text-muted-foreground" />
         </div>
-        <h3 className="mt-3 text-sm font-semibold">No library items yet</h3>
+        <h3 className="mt-3 text-sm font-semibold">No videos in your library yet</h3>
         <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
-          Once you publish a short through Road Runner, it'll appear here ready
-          to instant-rerun.
+          Post a video through Road Runner and it shows up here, ready to
+          re-run any time.
         </p>
         <Button asChild variant="brand" size="sm" className="mt-4 gap-1.5">
           <Link href="/compose">
             <Plus className="size-3.5" />
-            Schedule your first short
+            Make your first post
           </Link>
         </Button>
       </Card>

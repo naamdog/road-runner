@@ -13,8 +13,6 @@ import {
 } from "drizzle-orm/pg-core";
 
 // --- Better Auth tables ---
-// Better Auth manages these via its CLI / adapter. We mirror the schema here for type-safety
-// when querying user-related data from app code.
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -97,7 +95,25 @@ export const postStatusEnum = pgEnum("post_status", [
   "canceled",
 ]);
 
-/** A user-connected social account (the per-platform login). */
+/** A brand is a logical bucket: one brand groups all the social accounts that share an identity. */
+export const brand = pgTable(
+  "brand",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color").notNull().default("#CCFF00"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("brand_user_idx").on(t.userId)]
+);
+
+/** A user-connected social account, scoped to one brand. */
 export const connection = pgTable(
   "connection",
   {
@@ -105,17 +121,16 @@ export const connection = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    brandId: text("brand_id").references(() => brand.id, { onDelete: "cascade" }),
     platform: platformEnum("platform").notNull(),
     accountId: text("account_id").notNull(), // platform user/page/channel id
     accountName: text("account_name").notNull(),
     accountHandle: text("account_handle"),
     avatarUrl: text("avatar_url"),
-    /** OAuth tokens (encrypted at rest in production). */
     accessToken: text("access_token"),
     refreshToken: text("refresh_token"),
     accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
     scope: text("scope"),
-    /** Free-form platform-specific data (page_id, etc). */
     metadata: json("metadata").$type<Record<string, unknown>>(),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -123,6 +138,7 @@ export const connection = pgTable(
   },
   (t) => [
     index("connection_user_idx").on(t.userId),
+    index("connection_brand_idx").on(t.brandId),
     uniqueIndex("connection_user_platform_account_unq").on(
       t.userId,
       t.platform,
@@ -153,7 +169,7 @@ export const media = pgTable(
   (t) => [index("media_user_idx").on(t.userId)]
 );
 
-/** A "campaign" — one piece of content with one caption, scheduled to many platforms. */
+/** A "campaign" — one piece of content with one base caption, scheduled to many platforms. */
 export const post = pgTable(
   "post",
   {
@@ -161,16 +177,21 @@ export const post = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    brandId: text("brand_id").references(() => brand.id, { onDelete: "set null" }),
     mediaId: text("media_id").references(() => media.id, { onDelete: "set null" }),
+    /** Default caption — used when a target row has no override. */
     caption: text("caption").notNull().default(""),
     title: text("title"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("post_user_idx").on(t.userId)]
+  (t) => [
+    index("post_user_idx").on(t.userId),
+    index("post_brand_idx").on(t.brandId),
+  ]
 );
 
-/** Per-platform scheduled instance of the post — one row per (post, platform, time). */
+/** Per-platform scheduled instance of the post — one row per (post, account, time). */
 export const postTarget = pgTable(
   "post_target",
   {
@@ -185,12 +206,12 @@ export const postTarget = pgTable(
       onDelete: "set null",
     }),
     platform: platformEnum("platform").notNull(),
+    /** Per-target caption override. If null, use post.caption. */
+    caption: text("caption"),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
     status: postStatusEnum("status").notNull().default("scheduled"),
-    /** Platform's returned post URL once published. */
     publishedUrl: text("published_url"),
     publishedAt: timestamp("published_at", { withTimezone: true }),
-    /** Last attempt info — for retry logic. */
     attempts: integer("attempts").notNull().default(0),
     lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
@@ -207,6 +228,7 @@ export const postTarget = pgTable(
 );
 
 export type User = typeof user.$inferSelect;
+export type Brand = typeof brand.$inferSelect;
 export type Connection = typeof connection.$inferSelect;
 export type Media = typeof media.$inferSelect;
 export type Post = typeof post.$inferSelect;

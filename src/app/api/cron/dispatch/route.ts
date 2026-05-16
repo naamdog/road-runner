@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
       attempts: postTarget.attempts,
       postId: postTarget.postId,
       userId: postTarget.userId,
+      targetCaption: postTarget.caption,
     })
     .from(postTarget)
     .where(
@@ -108,7 +109,7 @@ export async function GET(req: NextRequest) {
 
       const result = await publishers[row.platform]({
         videoUrl: p.videoUrl,
-        caption: p.caption,
+        caption: row.targetCaption ?? p.caption,
         title: p.title,
         durationMs: p.durationMs,
         contentType: p.contentType,

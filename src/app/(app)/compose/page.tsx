@@ -3,9 +3,11 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { connection, media as mediaTable } from "@/lib/db/schema";
 import { requireUser } from "@/lib/session";
-import { ComposeForm } from "./compose-form";
+import { getOrCreateBrands } from "@/lib/brands";
+import { readActiveBrandCookie } from "@/lib/active-brand";
+import { ComposeForm, type ComposeConnection } from "./compose-form";
 
-export const metadata: Metadata = { title: "Compose" };
+export const metadata: Metadata = { title: "New post" };
 export const dynamic = "force-dynamic";
 
 interface SP {
@@ -24,7 +26,14 @@ export default async function ComposePage({
   const userId = session.user.id;
   const sp = await searchParams;
 
-  let connections: { id: string; platform: string; accountName: string }[] = [];
+  const brands = await getOrCreateBrands(userId);
+  const cookieValue = await readActiveBrandCookie();
+  const activeBrand =
+    brands.find((b) => b.id === cookieValue) ??
+    brands.find((b) => b.isDefault) ??
+    brands[0];
+
+  let connections: ComposeConnection[] = [];
   let prefillMedia: {
     mediaId: string;
     url: string;
@@ -36,14 +45,26 @@ export default async function ComposePage({
   } | null = null;
 
   try {
-    connections = await db
-      .select({
-        id: connection.id,
-        platform: connection.platform,
-        accountName: connection.accountName,
-      })
-      .from(connection)
-      .where(and(eq(connection.userId, userId), eq(connection.isActive, true)));
+    if (activeBrand) {
+      const rows = await db
+        .select({
+          id: connection.id,
+          platform: connection.platform,
+          accountName: connection.accountName,
+          accountHandle: connection.accountHandle,
+          avatarUrl: connection.avatarUrl,
+          brandId: connection.brandId,
+        })
+        .from(connection)
+        .where(
+          and(
+            eq(connection.userId, userId),
+            eq(connection.brandId, activeBrand.id),
+            eq(connection.isActive, true)
+          )
+        );
+      connections = rows;
+    }
 
     if (sp.media) {
       const [m] = await db
@@ -63,14 +84,19 @@ export default async function ComposePage({
       }
     }
   } catch {
-    // DB not configured — fall back to empty
+    // DB not configured — render with empty state
   }
 
   const timezone = session.user.timezone || "UTC";
 
   return (
     <ComposeForm
-      connections={connections as never}
+      connections={connections}
+      activeBrand={
+        activeBrand
+          ? { id: activeBrand.id, name: activeBrand.name, color: activeBrand.color }
+          : null
+      }
       timezone={timezone}
       prefillMedia={prefillMedia}
       prefillCaption={sp.caption ?? null}

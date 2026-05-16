@@ -47,9 +47,9 @@ function Hero() {
           </h1>
 
           <p className="mt-6 max-w-2xl text-lg md:text-xl text-muted-foreground leading-relaxed">
-            One short video. One caption. Five platforms, five different times —
-            posted automatically. Road Runner is the fastest scheduler for short-form,
-            and only short-form.
+            One short video. Five apps. Five times. Posted for you. Road Runner
+            is the fastest way to keep your short videos going — and that's all
+            it does.
           </p>
 
           <div className="mt-9 flex flex-col sm:flex-row items-center gap-3">

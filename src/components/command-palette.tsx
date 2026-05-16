@@ -12,6 +12,7 @@ import {
   Settings,
   LogOut,
   Search,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/auth-client";
@@ -60,8 +61,9 @@ export function CommandPalette({
         const k = e.key.toLowerCase();
         if (k === "d") router.push("/dashboard");
         else if (k === "s") router.push("/scheduled");
-        else if (k === "c") router.push("/connections");
+        else if (k === "a") router.push("/connections");
         else if (k === "r") router.push("/re-runner");
+        else if (k === "b") router.push("/brands");
         else if (k === "n") router.push("/compose");
         return;
       }
@@ -142,10 +144,10 @@ export function CommandPalette({
             />
           </Command.Group>
 
-          <Command.Group heading="Navigate" className="text-xs uppercase tracking-wider text-subtle-foreground px-2 pt-3 pb-1">
+          <Command.Group heading="Go to" className="text-xs uppercase tracking-wider text-subtle-foreground px-2 pt-3 pb-1">
             <Item
               icon={LayoutDashboard}
-              label="Dashboard"
+              label="Home"
               shortcut="G D"
               onSelect={() => go("/dashboard")}
             />
@@ -157,15 +159,21 @@ export function CommandPalette({
             />
             <Item
               icon={CalendarDays}
-              label="Scheduled"
+              label="Lined up"
               shortcut="G S"
               onSelect={() => go("/scheduled")}
             />
             <Item
               icon={Link2}
-              label="Connections"
-              shortcut="G C"
+              label="Accounts"
+              shortcut="G A"
               onSelect={() => go("/connections")}
+            />
+            <Item
+              icon={Users}
+              label="Brands"
+              shortcut="G B"
+              onSelect={() => go("/brands")}
             />
             <Item
               icon={Settings}

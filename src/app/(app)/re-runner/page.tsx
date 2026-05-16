@@ -27,9 +27,8 @@ export default async function ReRunnerPage() {
             Re-runner
           </h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Your top short-form videos across every connected platform. One
-            click to download the original and queue a re-run — same hook, new
-            audience.
+            See your best videos from every app you connected. Tap one to grab
+            the original and post it again, fast.
           </p>
         </div>
       </div>
@@ -37,8 +36,8 @@ export default async function ReRunnerPage() {
       <section className="mb-10">
         <SectionHeader
           icon={Library}
-          title="From your Road Runner library"
-          description="Videos you've already published through Road Runner. The source file is in our storage — re-run is instant."
+          title="From your library"
+          description="Videos you already posted through Road Runner. The file is here, so re-running takes one tap."
         />
         <Suspense fallback={<GridSkeleton count={3} />}>
           <ReRunnerLibrary />
@@ -48,8 +47,8 @@ export default async function ReRunnerPage() {
       <section>
         <SectionHeader
           icon={Repeat}
-          title="Top performers, by platform"
-          description="Fetched live from each connected platform. Sorted by views, falling back to engagement."
+          title="Your best, by app"
+          description="Pulled live from every app you connected. Sorted by views (or by likes if views aren't shared)."
         />
         <Suspense fallback={<GridSkeleton count={6} />}>
           <ReRunnerFeed />

@@ -20,19 +20,28 @@ import { Badge } from "@/components/ui/badge";
 import { PlatformIcon } from "@/components/platform-icon";
 import { PLATFORM_META, type Platform } from "@/lib/platforms";
 import { Separator } from "@/components/ui/separator";
+import { getOrCreateBrands } from "@/lib/brands";
+import { readActiveBrandCookie } from "@/lib/active-brand";
 
-export const metadata: Metadata = { title: "Dashboard" };
+export const metadata: Metadata = { title: "Home" };
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const session = await requireUser();
   const userId = session.user.id;
 
+  const brands = await getOrCreateBrands(userId);
+  const cookieValue = await readActiveBrandCookie();
+  const activeBrand =
+    brands.find((b) => b.id === cookieValue) ??
+    brands.find((b) => b.isDefault) ??
+    brands[0];
+
   const [stats, upcoming, recentPublished, connections] = await Promise.all([
-    getStats(userId),
-    getUpcoming(userId),
-    getRecentPublished(userId),
-    getConnections(userId),
+    getStats(userId, activeBrand?.id),
+    getUpcoming(userId, activeBrand?.id),
+    getRecentPublished(userId, activeBrand?.id),
+    getConnections(userId, activeBrand?.id),
   ]);
 
   const firstName = session.user.name.split(" ")[0];
@@ -44,57 +53,65 @@ export default async function DashboardPage() {
           <h1 className="text-2xl font-semibold tracking-tight">
             {greeting()}, {firstName}.
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Here's what's running today.
+          <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
+            {activeBrand ? (
+              <>
+                <span
+                  className="size-2 rounded-full"
+                  style={{ background: activeBrand.color }}
+                />
+                Showing the <span className="text-foreground font-medium">{activeBrand.name}</span> brand
+              </>
+            ) : (
+              <>Here's what's going on today.</>
+            )}
           </p>
         </div>
         <Button asChild variant="brand">
           <Link href="/compose" className="gap-1.5">
             <Plus className="size-4" />
-            New short
+            New post
           </Link>
         </Button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           icon={CalendarDays}
-          label="Scheduled"
+          label="Lined up"
           value={stats.scheduled}
           accent
         />
         <StatCard
           icon={CheckCircle2}
-          label="Published (7d)"
+          label="Posted this week"
           value={stats.published7d}
         />
         <StatCard
           icon={Link2}
-          label="Connections"
+          label="Connected accounts"
           value={stats.connections}
           href="/connections"
         />
         <StatCard
           icon={TrendingUp}
-          label="Posts (30d)"
+          label="Posted this month"
           value={stats.published30d}
         />
       </div>
 
       <div className="grid lg:grid-cols-3 gap-5 mt-7">
-        {/* Upcoming */}
         <Card className="lg:col-span-2">
           <div className="flex items-center justify-between p-5 pb-3">
             <div>
               <h2 className="text-base font-semibold tracking-tight">Up next</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Your next 8 scheduled posts.
+                Your next 8 posts.
               </p>
             </div>
             <Button asChild variant="ghost" size="sm">
               <Link href="/scheduled" className="gap-1">
-                View all
+                See all
                 <ArrowUpRight className="size-3.5" />
               </Link>
             </Button>
@@ -104,9 +121,9 @@ export default async function DashboardPage() {
             {upcoming.length === 0 ? (
               <EmptyState
                 icon={Timer}
-                title="Nothing scheduled yet"
-                description="Drop a short, write a caption, pick your times. Done."
-                actionLabel="Create your first short"
+                title="Nothing lined up yet"
+                description="Drop a video, write a caption, pick your times. That's it."
+                actionLabel="Make your first post"
                 actionHref="/compose"
               />
             ) : (
@@ -141,16 +158,15 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Connections */}
         <div className="space-y-5">
           <Card>
             <div className="flex items-center justify-between p-5 pb-3">
               <div>
                 <h2 className="text-base font-semibold tracking-tight">
-                  Connections
+                  Accounts
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Platforms you can post to.
+                  Apps you can post to from this brand.
                 </p>
               </div>
             </div>
@@ -159,7 +175,7 @@ export default async function DashboardPage() {
               {(["youtube", "instagram", "tiktok", "linkedin", "facebook"] as Platform[]).map(
                 (p) => {
                   const meta = PLATFORM_META[p];
-                  const conn = connections.find((c) => c.platform === p);
+                  const conns = connections.filter((c) => c.platform === p);
                   return (
                     <Link
                       key={p}
@@ -168,8 +184,10 @@ export default async function DashboardPage() {
                     >
                       <PlatformIcon platform={p} size={20} />
                       <span className="text-sm flex-1 truncate">{meta.shortName}</span>
-                      {conn ? (
-                        <Badge variant="success">Connected</Badge>
+                      {conns.length > 0 ? (
+                        <Badge variant="success">
+                          {conns.length === 1 ? "On" : `${conns.length} accounts`}
+                        </Badge>
                       ) : (
                         <Badge variant="muted">Connect</Badge>
                       )}
@@ -189,8 +207,8 @@ export default async function DashboardPage() {
                 <div>
                   <h3 className="text-sm font-semibold">Tip</h3>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    Stagger your platforms by 2–6 hours. The same hook lands
-                    fresh for each audience.
+                    Space your apps 2–6 hours apart. The same hook lands fresh
+                    on each one.
                   </p>
                 </div>
               </div>
@@ -199,11 +217,10 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent */}
       {recentPublished.length > 0 ? (
         <div className="mt-7">
           <h2 className="text-base font-semibold tracking-tight mb-3">
-            Recently published
+            Just posted
           </h2>
           <Card>
             <CardContent className="p-0">
@@ -224,8 +241,8 @@ export default async function DashboardPage() {
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5">
                         {row.publishedAt
-                          ? `Published ${formatDate(row.publishedAt)}`
-                          : "Published"}
+                          ? `Posted ${formatDate(row.publishedAt)}`
+                          : "Posted"}
                       </div>
                     </div>
                     {row.publishedUrl ? (
@@ -235,7 +252,7 @@ export default async function DashboardPage() {
                         rel="noopener noreferrer"
                         className="text-xs text-brand hover:underline shrink-0"
                       >
-                        View ↗
+                        See it ↗
                       </a>
                     ) : null}
                   </li>
@@ -327,7 +344,7 @@ function EmptyState({
 
 function greeting() {
   const h = new Date().getHours();
-  if (h < 5) return "Up late";
+  if (h < 5) return "Still up";
   if (h < 12) return "Good morning";
   if (h < 17) return "Good afternoon";
   return "Good evening";
@@ -348,27 +365,32 @@ function formatDate(d: Date) {
   }).format(d);
 }
 
-// --- Queries ---
+// --- Queries (scoped by brand if provided) ---
 
-async function getStats(userId: string) {
+async function getStats(userId: string, brandId?: string) {
   try {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const baseTargetWhere = brandId
+      ? and(eq(postTarget.userId, userId), eq(post.brandId, brandId))
+      : eq(postTarget.userId, userId);
+
     const [[scheduledRow], [publishedRow7], [publishedRow30], [connectionsRow]] =
       await Promise.all([
         db
           .select({ c: count() })
           .from(postTarget)
-          .where(
-            and(eq(postTarget.userId, userId), eq(postTarget.status, "scheduled"))
-          ),
+          .innerJoin(post, eq(postTarget.postId, post.id))
+          .where(and(baseTargetWhere, eq(postTarget.status, "scheduled"))),
         db
           .select({ c: count() })
           .from(postTarget)
+          .innerJoin(post, eq(postTarget.postId, post.id))
           .where(
             and(
-              eq(postTarget.userId, userId),
+              baseTargetWhere,
               eq(postTarget.status, "published"),
               gte(postTarget.publishedAt, sevenDaysAgo)
             )
@@ -376,9 +398,10 @@ async function getStats(userId: string) {
         db
           .select({ c: count() })
           .from(postTarget)
+          .innerJoin(post, eq(postTarget.postId, post.id))
           .where(
             and(
-              eq(postTarget.userId, userId),
+              baseTargetWhere,
               eq(postTarget.status, "published"),
               gte(postTarget.publishedAt, thirtyDaysAgo)
             )
@@ -387,7 +410,13 @@ async function getStats(userId: string) {
           .select({ c: count() })
           .from(connection)
           .where(
-            and(eq(connection.userId, userId), eq(connection.isActive, true))
+            brandId
+              ? and(
+                  eq(connection.userId, userId),
+                  eq(connection.brandId, brandId),
+                  eq(connection.isActive, true)
+                )
+              : and(eq(connection.userId, userId), eq(connection.isActive, true))
           ),
       ]);
 
@@ -402,19 +431,28 @@ async function getStats(userId: string) {
   }
 }
 
-async function getUpcoming(userId: string) {
+async function getUpcoming(userId: string, brandId?: string) {
   try {
     const rows = await db
       .select({
         id: postTarget.id,
         platform: postTarget.platform,
         scheduledAt: postTarget.scheduledAt,
-        caption: post.caption,
+        caption: sql<string>`COALESCE(${postTarget.caption}, ${post.caption})`,
       })
       .from(postTarget)
       .innerJoin(post, eq(postTarget.postId, post.id))
       .where(
-        and(eq(postTarget.userId, userId), eq(postTarget.status, "scheduled"))
+        brandId
+          ? and(
+              eq(postTarget.userId, userId),
+              eq(postTarget.status, "scheduled"),
+              eq(post.brandId, brandId)
+            )
+          : and(
+              eq(postTarget.userId, userId),
+              eq(postTarget.status, "scheduled")
+            )
       )
       .orderBy(sql`${postTarget.scheduledAt} ASC`)
       .limit(8);
@@ -424,7 +462,7 @@ async function getUpcoming(userId: string) {
   }
 }
 
-async function getRecentPublished(userId: string) {
+async function getRecentPublished(userId: string, brandId?: string) {
   try {
     const rows = await db
       .select({
@@ -432,12 +470,21 @@ async function getRecentPublished(userId: string) {
         platform: postTarget.platform,
         publishedAt: postTarget.publishedAt,
         publishedUrl: postTarget.publishedUrl,
-        caption: post.caption,
+        caption: sql<string>`COALESCE(${postTarget.caption}, ${post.caption})`,
       })
       .from(postTarget)
       .innerJoin(post, eq(postTarget.postId, post.id))
       .where(
-        and(eq(postTarget.userId, userId), eq(postTarget.status, "published"))
+        brandId
+          ? and(
+              eq(postTarget.userId, userId),
+              eq(postTarget.status, "published"),
+              eq(post.brandId, brandId)
+            )
+          : and(
+              eq(postTarget.userId, userId),
+              eq(postTarget.status, "published")
+            )
       )
       .orderBy(sql`${postTarget.publishedAt} DESC`)
       .limit(5);
@@ -447,7 +494,7 @@ async function getRecentPublished(userId: string) {
   }
 }
 
-async function getConnections(userId: string) {
+async function getConnections(userId: string, brandId?: string) {
   try {
     const rows = await db
       .select({
@@ -455,7 +502,15 @@ async function getConnections(userId: string) {
         accountName: connection.accountName,
       })
       .from(connection)
-      .where(eq(connection.userId, userId));
+      .where(
+        brandId
+          ? and(
+              eq(connection.userId, userId),
+              eq(connection.brandId, brandId),
+              eq(connection.isActive, true)
+            )
+          : and(eq(connection.userId, userId), eq(connection.isActive, true))
+      );
     return rows;
   } catch {
     return [];

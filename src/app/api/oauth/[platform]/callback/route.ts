@@ -98,6 +98,7 @@ export async function GET(
     .values({
       id: nanoid(),
       userId: verified.userId,
+      brandId: verified.brandId,
       platform: platform as Platform,
       accountId: profile.accountId,
       accountName: profile.accountName,
@@ -113,6 +114,7 @@ export async function GET(
     .onConflictDoUpdate({
       target: [connection.userId, connection.platform, connection.accountId],
       set: {
+        brandId: verified.brandId,
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token ?? null,
         accessTokenExpiresAt: expiresAt,

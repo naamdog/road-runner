@@ -9,10 +9,19 @@ import type { Platform } from "@/lib/platforms";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ReRunnerGrid } from "./re-runner-grid";
+import { getOrCreateBrands } from "@/lib/brands";
+import { readActiveBrandCookie } from "@/lib/active-brand";
 
 export async function ReRunnerFeed() {
   const session = await requireUser();
   const userId = session.user.id;
+
+  const brands = await getOrCreateBrands(userId);
+  const cookieValue = await readActiveBrandCookie();
+  const activeBrand =
+    brands.find((b) => b.id === cookieValue) ??
+    brands.find((b) => b.isDefault) ??
+    brands[0];
 
   const conns = await db
     .select({
@@ -27,7 +36,13 @@ export async function ReRunnerFeed() {
     })
     .from(connection)
     .where(
-      and(eq(connection.userId, userId), eq(connection.isActive, true))
+      activeBrand
+        ? and(
+            eq(connection.userId, userId),
+            eq(connection.brandId, activeBrand.id),
+            eq(connection.isActive, true)
+          )
+        : and(eq(connection.userId, userId), eq(connection.isActive, true))
     );
 
   if (conns.length === 0) {
@@ -36,12 +51,12 @@ export async function ReRunnerFeed() {
         <div className="size-11 mx-auto rounded-md bg-surface-2 border border-border flex items-center justify-center">
           <Link2 className="size-5 text-muted-foreground" />
         </div>
-        <h3 className="mt-3 text-sm font-semibold">No platforms connected</h3>
+        <h3 className="mt-3 text-sm font-semibold">No accounts connected yet</h3>
         <p className="mt-1 text-sm text-muted-foreground max-w-sm mx-auto">
-          Connect at least one platform to see your top-performing videos here.
+          Connect at least one social account to see your best videos here.
         </p>
         <Button asChild variant="brand" size="sm" className="mt-4">
-          <Link href="/connections">Connect a platform</Link>
+          <Link href="/connections">Connect an account</Link>
         </Button>
       </Card>
     );
@@ -81,11 +96,10 @@ export async function ReRunnerFeed() {
   if (videos.length === 0 && errors.length === 0) {
     return (
       <Card className="p-10 text-center">
-        <h3 className="text-sm font-semibold">No public shorts yet</h3>
+        <h3 className="text-sm font-semibold">No videos yet</h3>
         <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
-          We didn't find any short-form video posts on your connected
-          platforms. Once you publish some, they'll show up here ranked by
-          views.
+          We didn't find any short-form posts on your accounts yet. Once you
+          post some, they'll show up here ranked by views.
         </p>
       </Card>
     );
@@ -98,7 +112,7 @@ export async function ReRunnerFeed() {
           <AlertTriangle className="size-4 text-warning shrink-0 mt-0.5" />
           <div>
             <div className="text-foreground font-medium">
-              Some platforms could not be fetched
+              Some apps could not load
             </div>
             <ul className="mt-1 text-muted-foreground space-y-0.5">
               {errors.map((e) => (

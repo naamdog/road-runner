@@ -10,6 +10,7 @@ import {
   Link2,
   Repeat,
   Settings,
+  Users,
   Menu,
   X,
 } from "lucide-react";
@@ -17,11 +18,12 @@ import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/compose", label: "Compose", icon: Plus, primary: true },
+  { href: "/dashboard", label: "Home", icon: LayoutDashboard },
+  { href: "/compose", label: "New post", icon: Plus, primary: true },
   { href: "/re-runner", label: "Re-runner", icon: Repeat },
-  { href: "/scheduled", label: "Scheduled", icon: CalendarDays },
-  { href: "/connections", label: "Connections", icon: Link2 },
+  { href: "/scheduled", label: "Lined up", icon: CalendarDays },
+  { href: "/connections", label: "Accounts", icon: Link2 },
+  { href: "/brands", label: "Brands", icon: Users },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

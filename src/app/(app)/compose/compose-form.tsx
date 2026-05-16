@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  AlertTriangle,
   Calendar,
   Check,
   Clock,
@@ -14,7 +13,6 @@ import {
   Info,
   Loader2,
   Repeat,
-  Sparkles,
   Trash2,
   Upload,
   X,
@@ -22,7 +20,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -30,17 +27,19 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { PlatformIcon } from "@/components/platform-icon";
 import {
-  PLATFORMS,
   PLATFORM_META,
   type Platform,
   maxCaptionForPlatforms,
 } from "@/lib/platforms";
 import { cn, formatBytes, formatDuration } from "@/lib/utils";
 
-interface Connection {
+export interface ComposeConnection {
   id: string;
   platform: Platform;
   accountName: string;
+  accountHandle: string | null;
+  avatarUrl: string | null;
+  brandId: string | null;
 }
 
 interface PrefillMedia {
@@ -54,7 +53,8 @@ interface PrefillMedia {
 }
 
 interface Props {
-  connections: Connection[];
+  connections: ComposeConnection[];
+  activeBrand: { id: string; name: string; color: string } | null;
   timezone: string;
   prefillMedia?: PrefillMedia | null;
   prefillCaption?: string | null;
@@ -62,18 +62,17 @@ interface Props {
   prefillPermalink?: string | null;
 }
 
-interface PlatformSchedule {
+interface Schedule {
   enabled: boolean;
-  date: string; // YYYY-MM-DD
-  time: string; // HH:MM
+  date: string;
+  time: string;
 }
 
-type Schedules = Record<Platform, PlatformSchedule>;
-
-const ALL_PLATFORMS = PLATFORMS;
+type CaptionMode = "single" | "per-target";
 
 export function ComposeForm({
   connections,
+  activeBrand,
   timezone,
   prefillMedia,
   prefillCaption,
@@ -110,23 +109,32 @@ export function ComposeForm({
     prefillMedia?.filename ?? null
   );
 
-  const [caption, setCaption] = useState(prefillCaption ?? "");
-  const [schedules, setSchedules] = useState<Schedules>(() =>
-    defaultSchedules(isRerun ? connections.map((c) => c.platform) : [])
+  const [captionMode, setCaptionMode] = useState<CaptionMode>("single");
+  const [singleCaption, setSingleCaption] = useState(prefillCaption ?? "");
+  const [perTargetCaptions, setPerTargetCaptions] = useState<Record<string, string>>(
+    {}
+  );
+
+  const [schedules, setSchedules] = useState<Record<string, Schedule>>(() =>
+    defaultSchedules(connections, isRerun)
   );
   const [submitting, setSubmitting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [pulledBannerVisible, setPulledBannerVisible] = useState(isRerun);
 
-  const selectedPlatforms = ALL_PLATFORMS.filter((p) => schedules[p].enabled);
+  const selectedConnections = connections.filter(
+    (c) => schedules[c.id]?.enabled
+  );
+  const selectedPlatforms = Array.from(
+    new Set(selectedConnections.map((c) => c.platform))
+  );
   const captionMax = selectedPlatforms.length > 0
     ? maxCaptionForPlatforms(selectedPlatforms)
     : 100;
 
-  const captionOver = caption.length > captionMax;
-  const hashtagCount = (caption.match(/#\w+/g) || []).length;
+  const captionOver = captionMode === "single" && singleCaption.length > captionMax;
+  const hashtagCount = (singleCaption.match(/#\w+/g) || []).length;
 
-  // Generate preview URL for newly-uploaded files (not pre-filled).
   useEffect(() => {
     if (!file) return;
     const url = URL.createObjectURL(file);
@@ -134,7 +142,6 @@ export function ComposeForm({
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  // Probe duration for newly-uploaded files; pre-fill already has it.
   useEffect(() => {
     if (!previewUrl || existingMediaId) return;
     const v = document.createElement("video");
@@ -148,11 +155,11 @@ export function ComposeForm({
 
   async function handleFileChosen(f: File) {
     if (!f.type.startsWith("video/")) {
-      toast.error("Please upload a video file (mp4, mov, webm).");
+      toast.error("Pick a video file (mp4, mov, or webm).");
       return;
     }
     if (f.size > 1024 * 1024 * 1024) {
-      toast.error("File is larger than 1 GB. Please re-encode at lower bitrate.");
+      toast.error("That file is over 1 GB. Try a smaller one.");
       return;
     }
     setFile(f);
@@ -160,7 +167,7 @@ export function ComposeForm({
     setUploadedUrl(null);
     setUploadedSize(null);
     setUploadedContentType(null);
-    setExistingMediaId(null); // we're uploading fresh now
+    setExistingMediaId(null);
     setPulledBannerVisible(false);
     void uploadFile(f);
   }
@@ -168,11 +175,9 @@ export function ComposeForm({
   async function uploadFile(f: File) {
     setUploading(true);
     setUploadProgress(0);
-
     try {
       const fd = new FormData();
       fd.append("file", f);
-
       const xhr = new XMLHttpRequest();
       const promise = new Promise<{
         url: string;
@@ -190,7 +195,7 @@ export function ComposeForm({
             try {
               resolve(JSON.parse(xhr.responseText));
             } catch {
-              reject(new Error("Invalid response"));
+              reject(new Error("Bad response"));
             }
           } else {
             try {
@@ -204,7 +209,6 @@ export function ComposeForm({
         xhr.onerror = () => reject(new Error("Upload failed"));
         xhr.send(fd);
       });
-
       const { url, size, contentType } = await promise;
       setUploadedUrl(url);
       setUploadedSize(size);
@@ -219,40 +223,46 @@ export function ComposeForm({
     }
   }
 
-  function togglePlatform(p: Platform) {
+  function toggleConnection(connectionId: string) {
     setSchedules((prev) => ({
       ...prev,
-      [p]: { ...prev[p], enabled: !prev[p].enabled },
+      [connectionId]: {
+        ...prev[connectionId],
+        enabled: !prev[connectionId].enabled,
+      },
     }));
   }
 
-  function updateSchedule(p: Platform, patch: Partial<PlatformSchedule>) {
-    setSchedules((prev) => ({ ...prev, [p]: { ...prev[p], ...patch } }));
+  function updateSchedule(connectionId: string, patch: Partial<Schedule>) {
+    setSchedules((prev) => ({
+      ...prev,
+      [connectionId]: { ...prev[connectionId], ...patch },
+    }));
   }
 
   function applyToAll(date: string, time: string) {
     setSchedules((prev) => {
       const next = { ...prev };
-      for (const p of ALL_PLATFORMS) {
-        if (next[p].enabled) next[p] = { ...next[p], date, time };
+      for (const id of Object.keys(next)) {
+        if (next[id].enabled) next[id] = { ...next[id], date, time };
       }
       return next;
     });
-    toast.success("Applied to all selected platforms.");
+    toast.success("Time copied to every picked account.");
   }
 
   function autoStagger() {
-    const enabled = ALL_PLATFORMS.filter((p) => schedules[p].enabled);
+    const enabled = connections.filter((c) => schedules[c.id]?.enabled);
     if (enabled.length === 0) {
-      toast.error("Select at least one platform first.");
+      toast.error("Pick at least one account first.");
       return;
     }
     const base = nextMorning();
     setSchedules((prev) => {
       const next = { ...prev };
-      enabled.forEach((p, i) => {
+      enabled.forEach((c, i) => {
         const d = new Date(base.getTime() + i * 3 * 60 * 60 * 1000);
-        next[p] = {
+        next[c.id] = {
           enabled: true,
           date: toDateInput(d),
           time: toTimeInput(d),
@@ -260,7 +270,36 @@ export function ComposeForm({
       });
       return next;
     });
-    toast.success("Staggered across selected platforms (3-hour gaps).");
+    toast.success(`Spread across ${enabled.length} accounts (3-hour gaps).`);
+  }
+
+  function switchCaptionMode(mode: CaptionMode) {
+    if (mode === captionMode) return;
+    if (mode === "per-target") {
+      // Seed each selected target with the single caption.
+      const seed: Record<string, string> = { ...perTargetCaptions };
+      for (const c of selectedConnections) {
+        if (!seed[c.id]) seed[c.id] = singleCaption;
+      }
+      setPerTargetCaptions(seed);
+    } else {
+      // Switching back to single. If any per-target caption differs, ask.
+      const all = Object.values(perTargetCaptions);
+      const unique = new Set(all);
+      if (unique.size > 1) {
+        const ok = window.confirm(
+          "Your captions are different. Keep just one for all? (We'll keep the longest.)"
+        );
+        if (!ok) return;
+        const longest = all.reduce((a, b) => (b.length > a.length ? b : a), "");
+        setSingleCaption(longest);
+      }
+    }
+    setCaptionMode(mode);
+  }
+
+  function updatePerTargetCaption(connectionId: string, value: string) {
+    setPerTargetCaptions((prev) => ({ ...prev, [connectionId]: value }));
   }
 
   async function handleSubmit() {
@@ -269,48 +308,58 @@ export function ComposeForm({
       toast.error("Wait for the video to finish uploading.");
       return;
     }
-    if (selectedPlatforms.length === 0) {
-      toast.error("Pick at least one platform.");
+    if (selectedConnections.length === 0) {
+      toast.error("Pick at least one account.");
       return;
     }
     if (captionOver) {
-      toast.error("Caption is over the limit for one of the selected platforms.");
+      toast.error("Your caption is too long for one of the picked apps.");
       return;
     }
 
-    const missing: Platform[] = [];
-    const targets: { platform: Platform; scheduledAt: string; connectionId: string | null }[] = [];
-    for (const p of selectedPlatforms) {
-      const { date, time } = schedules[p];
-      if (!date || !time) {
-        toast.error(`Set a date and time for ${PLATFORM_META[p].shortName}.`);
-        return;
-      }
-      const iso = localToIso(date, time);
-      if (new Date(iso).getTime() <= Date.now() + 60_000) {
-        toast.error(`${PLATFORM_META[p].shortName} time must be in the future.`);
-        return;
-      }
-      const conn = connections.find((c) => c.platform === p);
-      if (!conn) missing.push(p);
-      targets.push({
-        platform: p,
-        scheduledAt: iso,
-        connectionId: conn?.id ?? null,
-      });
-    }
+    const targets: {
+      platform: Platform;
+      scheduledAt: string;
+      connectionId: string | null;
+      caption?: string | null;
+    }[] = [];
 
-    if (missing.length > 0) {
-      toast.warning(
-        `Not connected: ${missing.map((p) => PLATFORM_META[p].shortName).join(", ")}. We'll save these as drafts.`
-      );
+    for (const c of selectedConnections) {
+      const s = schedules[c.id];
+      if (!s.date || !s.time) {
+        toast.error(`Set a date and time for ${c.accountName}.`);
+        return;
+      }
+      const iso = localToIso(s.date, s.time);
+      if (new Date(iso).getTime() <= Date.now() + 60_000) {
+        toast.error(`${c.accountName} time must be in the future.`);
+        return;
+      }
+      let cap: string | null = null;
+      if (captionMode === "per-target") {
+        const v = perTargetCaptions[c.id] ?? "";
+        if (v.length > PLATFORM_META[c.platform].maxCaptionLength) {
+          toast.error(
+            `Caption for ${c.accountName} is too long for ${PLATFORM_META[c.platform].shortName}.`
+          );
+          return;
+        }
+        cap = v;
+      }
+      targets.push({
+        platform: c.platform,
+        scheduledAt: iso,
+        connectionId: c.id,
+        caption: cap,
+      });
     }
 
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = {
-        caption,
+        caption: captionMode === "single" ? singleCaption : "",
         targets,
+        brandId: activeBrand?.id,
       };
       if (existingMediaId) {
         body.existingMediaId = existingMediaId;
@@ -330,16 +379,16 @@ export function ComposeForm({
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || "Could not schedule.");
+        throw new Error(j.error || "Could not line it up.");
       }
       toast.success(
-        selectedPlatforms.length > 1
-          ? `Scheduled across ${selectedPlatforms.length} platforms.`
-          : "Scheduled."
+        selectedConnections.length > 1
+          ? `Lined up across ${selectedConnections.length} accounts.`
+          : "Lined up."
       );
       router.push("/scheduled");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not schedule.");
+      toast.error(err instanceof Error ? err.message : "Could not line it up.");
     } finally {
       setSubmitting(false);
     }
@@ -350,11 +399,56 @@ export function ComposeForm({
     setUploadedUrl(null);
     setPreviewUrl(null);
     setDuration(null);
-    setCaption("");
+    setSingleCaption("");
+    setPerTargetCaptions({});
     setFilename(null);
     setExistingMediaId(null);
     setPulledBannerVisible(false);
-    setSchedules(defaultSchedules([]));
+    setSchedules(defaultSchedules(connections, false));
+  }
+
+  // Group connections by platform for cleaner rendering
+  const groupedConnections = useMemo(() => {
+    const m = new Map<Platform, ComposeConnection[]>();
+    for (const c of connections) {
+      if (!m.has(c.platform)) m.set(c.platform, []);
+      m.get(c.platform)!.push(c);
+    }
+    return m;
+  }, [connections]);
+
+  if (connections.length === 0) {
+    return (
+      <div className="container-page py-7 max-w-3xl">
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold tracking-tight">New post</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Connect your first social account to start posting.
+          </p>
+        </div>
+        <Card className="p-10 text-center">
+          <div className="size-12 mx-auto rounded-md bg-surface-2 border border-border flex items-center justify-center">
+            <Upload className="size-5 text-muted-foreground" />
+          </div>
+          <h3 className="mt-3 text-sm font-semibold">
+            No accounts connected to{" "}
+            {activeBrand ? (
+              <span style={{ color: activeBrand.color }}>{activeBrand.name}</span>
+            ) : (
+              "this brand"
+            )}{" "}
+            yet
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
+            Pick a social app (YouTube, Instagram, TikTok, LinkedIn, or
+            Facebook) to connect. Then come back and post.
+          </p>
+          <Button asChild variant="brand" size="sm" className="mt-4">
+            <Link href="/connections">Connect an account</Link>
+          </Button>
+        </Card>
+      </div>
+    );
   }
 
   return (
@@ -367,15 +461,14 @@ export function ComposeForm({
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium">
               {prefillSource === "library"
-                ? "Re-running from your library — original video and caption ready."
+                ? "Re-running from your library — video and caption are ready."
                 : prefillMedia
-                ? `Pulled from ${prefillSource ?? "platform"} — ready to schedule.`
-                : `Caption from ${prefillSource ?? "platform"} pre-filled — upload your video to continue.`}
+                ? `Pulled from ${prefillSource ?? "your platform"} — ready to line up.`
+                : `Caption from ${prefillSource ?? "your platform"} pre-filled — pick the video to keep going.`}
             </div>
             <div className="text-xs text-muted-foreground mt-0.5">
-              {connections.length > 0
-                ? "All connected platforms are pre-selected. Adjust times and hit Schedule."
-                : "Connect a platform to start scheduling."}
+              Every connected account in this brand is picked. Set the times
+              and hit "Line up".
             </div>
           </div>
           {prefillPermalink ? (
@@ -385,14 +478,14 @@ export function ComposeForm({
               rel="noopener noreferrer"
               className="text-xs text-brand hover:underline inline-flex items-center gap-1 shrink-0"
             >
-              View original
+              See original
               <ExternalLink className="size-3" />
             </a>
           ) : null}
           <button
             onClick={() => setPulledBannerVisible(false)}
             className="size-7 inline-flex items-center justify-center rounded hover:bg-surface-2 shrink-0"
-            aria-label="Dismiss"
+            aria-label="Hide"
           >
             <X className="size-3.5 text-muted-foreground" />
           </button>
@@ -408,12 +501,21 @@ export function ComposeForm({
                 Re-run
               </>
             ) : (
-              "New short"
+              "New post"
             )}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            One piece, five platforms, five times. Timezone:{" "}
-            <span className="text-foreground font-medium">{timezone}</span>
+          <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
+            {activeBrand ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="size-2 rounded-full"
+                  style={{ background: activeBrand.color }}
+                />
+                <span className="text-foreground font-medium">{activeBrand.name}</span>
+              </span>
+            ) : null}
+            <span>·</span>
+            <span>Your time zone: <span className="text-foreground font-medium">{timezone}</span></span>
           </p>
         </div>
         <div className="flex gap-2">
@@ -430,12 +532,12 @@ export function ComposeForm({
             {submitting ? (
               <>
                 <Loader2 className="size-4 animate-spin" />
-                Scheduling…
+                Lining up…
               </>
             ) : (
               <>
                 <Zap className="size-4" />
-                Schedule {selectedPlatforms.length > 0 ? `(${selectedPlatforms.length})` : ""}
+                Line up {selectedConnections.length > 0 ? `(${selectedConnections.length})` : ""}
               </>
             )}
           </Button>
@@ -443,6 +545,7 @@ export function ComposeForm({
       </div>
 
       <div className="grid lg:grid-cols-[340px_1fr] gap-5">
+        {/* Video upload */}
         <div className="space-y-4">
           <Card className="p-0 overflow-hidden">
             {previewUrl ? (
@@ -467,7 +570,7 @@ export function ComposeForm({
                   <div className="absolute top-3 right-3">
                     <Badge variant="success" className="gap-1">
                       <Check className="size-3" />
-                      {existingMediaId ? "Pulled" : "Uploaded"}
+                      Ready
                     </Badge>
                   </div>
                 ) : null}
@@ -497,9 +600,9 @@ export function ComposeForm({
                   <Upload className="size-5 text-muted-foreground" />
                 </div>
                 <div className="text-center px-4">
-                  <p className="text-sm font-medium">Drop a short here</p>
+                  <p className="text-sm font-medium">Drop a video here</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    or click to browse · mp4 / mov / webm · 9:16 recommended
+                    or tap to pick · mp4 / mov / webm · tall (9:16) works best
                   </p>
                 </div>
               </button>
@@ -522,7 +625,7 @@ export function ComposeForm({
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Film className="size-3.5" />
                 <span className="truncate font-mono text-foreground">
-                  {filename || "(re-runner source)"}
+                  {filename || "(pulled video)"}
                 </span>
               </div>
               {uploadedSize ? (
@@ -535,7 +638,7 @@ export function ComposeForm({
               ) : null}
               {duration ? (
                 <div className="flex items-center justify-between text-muted-foreground">
-                  <span>Duration</span>
+                  <span>Length</span>
                   <span className="font-mono text-foreground">
                     {formatDuration(duration)}
                   </span>
@@ -553,63 +656,150 @@ export function ComposeForm({
           ) : null}
         </div>
 
+        {/* Caption + schedule */}
         <div className="space-y-5">
           <Card>
-            <div className="p-5 pb-3 flex items-center justify-between">
+            <div className="p-5 pb-3 flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <h2 className="text-base font-semibold tracking-tight">Caption</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  One caption for all platforms — pre-flighted against each limit.
+                  {captionMode === "single"
+                    ? "One caption used for every account."
+                    : "Write a different caption for each account."}
                 </p>
               </div>
-              <div className="text-xs font-mono tabular-nums flex items-center gap-3">
-                <span className="text-muted-foreground inline-flex items-center gap-1">
-                  <Hash className="size-3" />
-                  {hashtagCount}
-                </span>
-                <span
-                  className={cn(
-                    "tabular-nums",
-                    captionOver ? "text-destructive" : "text-muted-foreground"
-                  )}
-                >
-                  {caption.length} / {captionMax}
-                </span>
+              <div className="flex items-center gap-2">
+                <div className="inline-flex h-8 items-center rounded-md border border-border bg-surface p-0.5">
+                  <button
+                    onClick={() => switchCaptionMode("single")}
+                    className={cn(
+                      "h-7 px-2.5 rounded-sm text-xs font-medium transition-colors",
+                      captionMode === "single"
+                        ? "bg-surface-3 text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    One caption
+                  </button>
+                  <button
+                    onClick={() => switchCaptionMode("per-target")}
+                    disabled={selectedConnections.length === 0}
+                    className={cn(
+                      "h-7 px-2.5 rounded-sm text-xs font-medium transition-colors",
+                      captionMode === "per-target"
+                        ? "bg-surface-3 text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                      "disabled:opacity-50 disabled:cursor-not-allowed"
+                    )}
+                  >
+                    Per app
+                  </button>
+                </div>
+                {captionMode === "single" ? (
+                  <div className="text-xs font-mono tabular-nums flex items-center gap-3">
+                    <span className="text-muted-foreground inline-flex items-center gap-1">
+                      <Hash className="size-3" />
+                      {hashtagCount}
+                    </span>
+                    <span
+                      className={cn(
+                        "tabular-nums",
+                        captionOver ? "text-destructive" : "text-muted-foreground"
+                      )}
+                    >
+                      {singleCaption.length} / {captionMax}
+                    </span>
+                  </div>
+                ) : null}
               </div>
             </div>
             <Separator />
             <div className="p-5">
-              <Textarea
-                placeholder="Hook line. Punchy second line. Call-to-action. #hashtag #shorts"
-                rows={4}
-                value={caption}
-                onChange={(e) => setCaption(e.target.value)}
-                className="resize-none border-0 bg-transparent p-0 text-base focus-visible:ring-0 placeholder:text-subtle-foreground/80"
-              />
-              {selectedPlatforms.length > 0 ? (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {selectedPlatforms.map((p) => {
-                    const meta = PLATFORM_META[p];
-                    const over = caption.length > meta.maxCaptionLength;
-                    return (
-                      <div
-                        key={p}
-                        className={cn(
-                          "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] border",
-                          over
-                            ? "bg-destructive/15 border-destructive/30 text-destructive"
-                            : "bg-surface-2 border-border text-muted-foreground"
-                        )}
-                      >
-                        <PlatformIcon platform={p} size={12} />
-                        <span>
-                          {meta.shortName}: {caption.length}/{meta.maxCaptionLength}
-                        </span>
-                      </div>
-                    );
-                  })}
+              {captionMode === "single" ? (
+                <>
+                  <Textarea
+                    placeholder="Catchy first line. Strong next line. Tell them what to do. #hashtag #shorts"
+                    rows={4}
+                    value={singleCaption}
+                    onChange={(e) => setSingleCaption(e.target.value)}
+                    className="resize-none border-0 bg-transparent p-0 text-base focus-visible:ring-0 placeholder:text-subtle-foreground/80"
+                  />
+                  {selectedPlatforms.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {selectedPlatforms.map((p) => {
+                        const meta = PLATFORM_META[p];
+                        const over = singleCaption.length > meta.maxCaptionLength;
+                        return (
+                          <div
+                            key={p}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] border",
+                              over
+                                ? "bg-destructive/15 border-destructive/30 text-destructive"
+                                : "bg-surface-2 border-border text-muted-foreground"
+                            )}
+                          >
+                            <PlatformIcon platform={p} size={12} />
+                            <span>
+                              {meta.shortName}: {singleCaption.length}/{meta.maxCaptionLength}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Pick at least one account below to see the limits.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-3">
+                  {selectedConnections.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      Pick at least one account below.
+                    </p>
+                  ) : (
+                    selectedConnections.map((c) => {
+                      const meta = PLATFORM_META[c.platform];
+                      const val = perTargetCaptions[c.id] ?? "";
+                      const over = val.length > meta.maxCaptionLength;
+                      return (
+                        <div key={c.id} className="rounded-md border border-border bg-surface-2/30 p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <PlatformIcon platform={c.platform} size={16} />
+                              <span className="text-sm font-medium truncate">
+                                {c.accountName}
+                              </span>
+                              <span className="text-xs text-muted-foreground truncate">
+                                · {meta.shortName}
+                              </span>
+                            </div>
+                            <span
+                              className={cn(
+                                "text-xs font-mono tabular-nums",
+                                over ? "text-destructive" : "text-muted-foreground"
+                              )}
+                            >
+                              {val.length} / {meta.maxCaptionLength}
+                            </span>
+                          </div>
+                          <Textarea
+                            placeholder={`Write a caption for ${meta.shortName}…`}
+                            rows={3}
+                            value={val}
+                            onChange={(e) =>
+                              updatePerTargetCaption(c.id, e.target.value)
+                            }
+                            className="resize-none bg-transparent text-sm"
+                          />
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
-              ) : null}
+              )}
             </div>
           </Card>
 
@@ -617,145 +807,131 @@ export function ComposeForm({
             <div className="p-5 pb-3 flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold tracking-tight">
-                  Schedule per platform
+                  Where and when
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Same caption, different time on each platform.
+                  Pick which accounts to post to and pick a time for each.
                 </p>
               </div>
               <div className="flex gap-1.5">
                 <Button variant="outline" size="sm" onClick={autoStagger}>
-                  Auto-stagger
+                  Spread times
                 </Button>
               </div>
             </div>
             <Separator />
             <div className="divide-y divide-border">
-              {ALL_PLATFORMS.map((p) => {
-                const meta = PLATFORM_META[p];
-                const s = schedules[p];
-                const conn = connections.find((c) => c.platform === p);
-                return (
-                  <div
-                    key={p}
-                    className={cn(
-                      "px-5 py-3.5 flex items-center gap-4",
-                      !s.enabled && "opacity-60"
-                    )}
-                  >
-                    <button
-                      onClick={() => togglePlatform(p)}
-                      className={cn(
-                        "flex items-center gap-2.5 min-w-[160px] py-1 rounded-md",
-                        "text-left hover:bg-surface-2/40 -mx-2 px-2 transition-colors"
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "size-4 rounded-sm border flex items-center justify-center",
-                          s.enabled
-                            ? "bg-brand border-brand text-brand-foreground"
-                            : "border-border-strong bg-surface"
-                        )}
-                      >
-                        {s.enabled ? <Check className="size-3 stroke-[3]" /> : null}
-                      </div>
-                      <PlatformIcon platform={p} size={20} />
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium">{meta.shortName}</div>
-                        {conn ? (
-                          <div className="text-[11px] text-muted-foreground truncate">
-                            {conn.accountName}
-                          </div>
-                        ) : (
-                          <div className="text-[11px] text-warning truncate">
-                            Not connected
-                          </div>
-                        )}
-                      </div>
-                    </button>
-
-                    <div className="flex items-center gap-2 ml-auto">
-                      <div className="relative">
-                        <Calendar className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                        <input
-                          type="date"
-                          disabled={!s.enabled}
-                          value={s.date}
-                          min={toDateInput(new Date())}
-                          onChange={(e) => updateSchedule(p, { date: e.target.value })}
-                          className={cn(
-                            "h-9 rounded-md border border-border bg-surface pl-8 pr-2.5 text-sm",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:border-brand/60",
-                            "disabled:opacity-50 disabled:cursor-not-allowed",
-                            "[color-scheme:dark]"
-                          )}
-                        />
-                      </div>
-                      <div className="relative">
-                        <Clock className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                        <input
-                          type="time"
-                          disabled={!s.enabled}
-                          value={s.time}
-                          onChange={(e) => updateSchedule(p, { time: e.target.value })}
-                          className={cn(
-                            "h-9 rounded-md border border-border bg-surface pl-8 pr-2.5 text-sm",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:border-brand/60",
-                            "disabled:opacity-50 disabled:cursor-not-allowed",
-                            "[color-scheme:dark]"
-                          )}
-                        />
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        disabled={!s.enabled}
-                        onClick={() => applyToAll(s.date, s.time)}
-                        title="Apply this date/time to all selected"
-                      >
-                        <span className="text-[10px] font-mono">→ ALL</span>
-                      </Button>
+              {Array.from(groupedConnections.entries()).map(([platform, accounts]) => (
+                <div key={platform}>
+                  {accounts.length > 1 ? (
+                    <div className="px-5 pt-3 pb-1 text-xs uppercase tracking-wider text-subtle-foreground flex items-center gap-1.5">
+                      <PlatformIcon platform={platform} size={12} />
+                      <span>{PLATFORM_META[platform].name}</span>
+                      <span className="text-subtle-foreground/60">· {accounts.length} accounts</span>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  ) : null}
+                  {accounts.map((c) => {
+                    const s = schedules[c.id] || { enabled: false, date: "", time: "" };
+                    return (
+                      <div
+                        key={c.id}
+                        className={cn(
+                          "px-5 py-3 flex items-center gap-4",
+                          !s.enabled && "opacity-60"
+                        )}
+                      >
+                        <button
+                          onClick={() => toggleConnection(c.id)}
+                          className={cn(
+                            "flex items-center gap-2.5 min-w-[200px] py-1 rounded-md",
+                            "text-left hover:bg-surface-2/40 -mx-2 px-2 transition-colors"
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "size-4 rounded-sm border flex items-center justify-center shrink-0",
+                              s.enabled
+                                ? "bg-brand border-brand text-brand-foreground"
+                                : "border-border-strong bg-surface"
+                            )}
+                          >
+                            {s.enabled ? <Check className="size-3 stroke-[3]" /> : null}
+                          </div>
+                          {accounts.length === 1 ? (
+                            <PlatformIcon platform={c.platform} size={20} />
+                          ) : null}
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium truncate">
+                              {c.accountName}
+                            </div>
+                            {c.accountHandle ? (
+                              <div className="text-[11px] text-muted-foreground truncate">
+                                @{c.accountHandle.replace(/^@/, "")}
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-muted-foreground truncate">
+                                {PLATFORM_META[c.platform].shortName}
+                              </div>
+                            )}
+                          </div>
+                        </button>
 
-            {selectedPlatforms.some(
-              (p) => !connections.find((c) => c.platform === p)
-            ) ? (
-              <div className="border-t border-border bg-warning/5 px-5 py-3 flex items-start gap-2.5">
-                <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
-                <div className="text-xs text-muted-foreground">
-                  Some selected platforms aren't connected yet. We'll save those
-                  as drafts.{" "}
-                  <Link
-                    href="/connections"
-                    className="text-foreground underline-offset-4 hover:underline"
-                  >
-                    Connect now →
-                  </Link>
+                        <div className="flex items-center gap-2 ml-auto flex-wrap">
+                          <div className="relative">
+                            <Calendar className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                            <input
+                              type="date"
+                              disabled={!s.enabled}
+                              value={s.date}
+                              min={toDateInput(new Date())}
+                              onChange={(e) => updateSchedule(c.id, { date: e.target.value })}
+                              className={cn(
+                                "h-9 rounded-md border border-border bg-surface pl-8 pr-2.5 text-sm",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:border-brand/60",
+                                "disabled:opacity-50 disabled:cursor-not-allowed",
+                                "[color-scheme:dark]"
+                              )}
+                            />
+                          </div>
+                          <div className="relative">
+                            <Clock className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                            <input
+                              type="time"
+                              disabled={!s.enabled}
+                              value={s.time}
+                              onChange={(e) => updateSchedule(c.id, { time: e.target.value })}
+                              className={cn(
+                                "h-9 rounded-md border border-border bg-surface pl-8 pr-2.5 text-sm",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:border-brand/60",
+                                "disabled:opacity-50 disabled:cursor-not-allowed",
+                                "[color-scheme:dark]"
+                              )}
+                            />
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled={!s.enabled}
+                            onClick={() => applyToAll(s.date, s.time)}
+                            title="Copy this time to every picked account"
+                          >
+                            <span className="text-[10px] font-mono">→ ALL</span>
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            ) : null}
+              ))}
+            </div>
           </Card>
 
           <div className="rounded-md bg-surface/40 border border-border px-4 py-3 flex items-start gap-2.5">
             <Info className="size-4 text-muted-foreground mt-0.5 shrink-0" />
             <p className="text-xs text-muted-foreground leading-relaxed">
-              {isRerun ? (
-                <>
-                  Re-runs work best with a fresh hook. Try tweaking the first 1–2
-                  seconds and the first line of the caption before scheduling.
-                </>
-              ) : (
-                <>
-                  Short-form best practice: stagger by 2–6 hours so the same hook
-                  lands fresh on each platform. The first 3 seconds matter most —
-                  hook before the swipe.
-                </>
-              )}
+              {isRerun
+                ? "Tip: change the first second or first line so it feels fresh."
+                : "Tip: space out posts by 2–6 hours so each audience sees it fresh. The first 3 seconds matter most."}
             </p>
           </div>
         </div>
@@ -766,14 +942,16 @@ export function ComposeForm({
 
 // --- helpers ---
 
-function defaultSchedules(autoEnable: Platform[]): Schedules {
-  const enable = new Set(autoEnable);
+function defaultSchedules(
+  connections: ComposeConnection[],
+  autoEnableAll: boolean
+): Record<string, Schedule> {
   const base = nextMorning();
-  const obj = {} as Schedules;
-  ALL_PLATFORMS.forEach((p, i) => {
+  const obj: Record<string, Schedule> = {};
+  connections.forEach((c, i) => {
     const t = new Date(base.getTime() + i * 3 * 60 * 60 * 1000);
-    obj[p] = {
-      enabled: enable.has(p),
+    obj[c.id] = {
+      enabled: autoEnableAll,
       date: toDateInput(t),
       time: toTimeInput(t),
     };

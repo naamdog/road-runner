@@ -9,18 +9,19 @@ import {
   Link2,
   Repeat,
   Settings,
-  HelpCircle,
+  Users,
   Keyboard,
 } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, shortcut: "G D" },
-  { href: "/compose", label: "Compose", icon: Plus, primary: true, shortcut: "C" },
+  { href: "/dashboard", label: "Home", icon: LayoutDashboard, shortcut: "G D" },
+  { href: "/compose", label: "New post", icon: Plus, primary: true, shortcut: "C" },
   { href: "/re-runner", label: "Re-runner", icon: Repeat, shortcut: "G R" },
-  { href: "/scheduled", label: "Scheduled", icon: CalendarDays, shortcut: "G S" },
-  { href: "/connections", label: "Connections", icon: Link2, shortcut: "G C" },
+  { href: "/scheduled", label: "Lined up", icon: CalendarDays, shortcut: "G S" },
+  { href: "/connections", label: "Accounts", icon: Link2, shortcut: "G A" },
+  { href: "/brands", label: "Brands", icon: Users, shortcut: "G B" },
 ];
 
 const secondary = [
