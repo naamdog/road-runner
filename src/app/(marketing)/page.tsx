@@ -172,20 +172,20 @@ function HowItWorks() {
     {
       n: "01",
       icon: Upload,
-      title: "Drop in your vertical short.",
-      body: "MP4, MOV, up to 90 seconds, up to 1 GB. We handle the rest.",
+      title: "Drop in your tall video.",
+      body: "MP4 or MOV, up to 90 seconds, up to 1 GB. We do the rest.",
     },
     {
       n: "02",
       icon: Sparkles,
-      title: "Write one caption.",
-      body: "Same hook, same hashtags, same energy — pre-flighted against each platform's limits.",
+      title: "Write one caption (or five).",
+      body: "Use the same words for every app, or write a different one for each. We check each app's limits so you don't have to.",
     },
     {
       n: "03",
       icon: Calendar,
-      title: "Pick a time per platform.",
-      body: "Stagger across days and times to maximize reach without flooding your audience.",
+      title: "Pick a time for each app.",
+      body: "Spread the times across the week so each audience sees it fresh.",
     },
   ];
   return (
@@ -193,8 +193,8 @@ function HowItWorks() {
       <div className="container-page">
         <SectionHeader
           eyebrow="How it works"
-          title="From upload to scheduled in 60 seconds."
-          description="No multi-step wizard. No copy-paste loop. One screen, three decisions."
+          title="From upload to lined up in 60 seconds."
+          description="No long forms. No copy and paste. One screen, three steps."
         />
         <div className="mt-12 grid md:grid-cols-3 gap-4">
           {steps.map((s) => {
@@ -224,33 +224,37 @@ function HowItWorks() {
 function Features() {
   const features = [
     {
-      title: "Re-runner — your hits, re-fired.",
-      body: "Pulls your top-performing shorts from every platform, ranked by views. One click downloads the original and queues a re-run.",
+      title: "Re-runner — your best, again.",
+      body: "See your top videos from every app, ranked by views. Tap one to pull the file and post it again.",
       featured: true,
     },
     {
-      title: "One caption, every platform.",
-      body: "Write it once. We pre-flight character counts, hashtag caps, and content rules per platform.",
+      title: "Multiple brands.",
+      body: "One log-in, as many brands as you want. Each brand has its own social accounts.",
     },
     {
-      title: "Stagger times in seconds.",
-      body: "Schedule the same short to all 5 platforms at different times — drag, click, type. Done.",
+      title: "One caption — or five.",
+      body: "Write one caption for every app, or a different one for each. Your call.",
     },
     {
-      title: "Timezone-aware scheduling.",
-      body: "Your local time. We handle DST, conversions, and weird platform quirks.",
+      title: "Spread out your times.",
+      body: "Post the same video to 5 apps at 5 different times. Hit each audience fresh.",
     },
     {
-      title: "Retry with backoff.",
-      body: "Failed post? We retry up to 3 times with exponential backoff before paging you.",
+      title: "Knows your time zone.",
+      body: "Use your local time. We handle the math, daylight saving, and app quirks.",
     },
     {
-      title: "Calendar + list views.",
-      body: "See your week at a glance, or your queue as a feed. Reschedule with one click.",
+      title: "Tries again if a post fails.",
+      body: "We try up to 3 times before we ping you. Most blips just clear up.",
     },
     {
-      title: "Keyboard-first.",
-      body: "Cmd+K opens the command palette. Compose, search, jump — all from your keys.",
+      title: "Calendar or list view.",
+      body: "See your week at a glance, or your queue as a feed. Move a post with one tap.",
+    },
+    {
+      title: "Built for keyboard.",
+      body: "Cmd+K opens the command bar. Jump anywhere, post anything, in seconds.",
     },
   ];
   return (
@@ -258,8 +262,8 @@ function Features() {
       <div className="container-page">
         <SectionHeader
           eyebrow="Features"
-          title="Focused. Fast. Stupidly simple."
-          description="No long-form posts. No threads. No stories. Just short-form video, done right."
+          title="Simple. Fast. Built for short videos."
+          description="No long posts. No threads. No stories. Just short video, done right."
         />
         <div className="mt-12 grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {features.map((f) => (
