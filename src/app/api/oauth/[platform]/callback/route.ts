@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { nanoid } from "nanoid";
-import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { connection } from "@/lib/db/schema";
 import { PLATFORMS, type Platform } from "@/lib/platforms";
@@ -86,55 +85,86 @@ export async function GET(
     return redirectWithError("No access token returned");
   }
 
-  // Fetch user info per-platform (best-effort scaffolding).
-  const profile = await fetchProfile(platform as Platform, tokens.access_token);
+  // For Meta, exchange short-lived user token for a long-lived one BEFORE
+  // fetching pages — page access tokens derived from a long-lived user token
+  // are themselves long-lived (don't expire as long as permissions hold).
+  let userToken = tokens.access_token;
+  if (platform === "facebook" || platform === "instagram") {
+    try {
+      const longRes = await fetch(
+        `https://graph.facebook.com/v19.0/oauth/access_token?` +
+          new URLSearchParams({
+            grant_type: "fb_exchange_token",
+            client_id: clientId,
+            client_secret: clientSecret,
+            fb_exchange_token: tokens.access_token,
+          }).toString()
+      );
+      if (longRes.ok) {
+        const j = (await longRes.json()) as { access_token?: string };
+        if (j.access_token) userToken = j.access_token;
+      }
+    } catch {
+      // fall back to short-lived; it still works for testing
+    }
+  }
 
-  // For Meta Pages/Instagram, publishers need the *Page* access token, not the
-  // user token. fetchProfile stashes one in metadata.pageAccessToken when
-  // available — promote it to the connection's primary access token.
-  const pageAccessToken = (profile.metadata?.pageAccessToken as string | undefined) ?? null;
-  const tokenToStore =
-    (platform === "facebook" || platform === "instagram") && pageAccessToken
-      ? pageAccessToken
-      : tokens.access_token;
+  const profiles = await fetchProfiles(platform as Platform, userToken);
 
-  const expiresAt = tokens.expires_in
-    ? new Date(Date.now() + (tokens.expires_in as number) * 1000)
-    : null;
+  if (profiles.length === 0) {
+    return redirectWithError(noProfilesError(platform as Platform));
+  }
 
-  await db
-    .insert(connection)
-    .values({
-      id: nanoid(),
-      userId: verified.userId,
-      brandId: verified.brandId,
-      platform: platform as Platform,
-      accountId: profile.accountId,
-      accountName: profile.accountName,
-      accountHandle: profile.accountHandle,
-      avatarUrl: profile.avatarUrl,
-      accessToken: tokenToStore,
-      refreshToken: tokens.refresh_token ?? null,
-      accessTokenExpiresAt: expiresAt,
-      scope: (tokens.scope as string) ?? cfg.scopes.join(" "),
-      metadata: profile.metadata,
-      isActive: true,
-    })
-    .onConflictDoUpdate({
-      target: [connection.userId, connection.platform, connection.accountId],
-      set: {
+  let saved = 0;
+  for (const profile of profiles) {
+    // For Meta, the connection's stored access token should be the Page token
+    // so publishers (which use connection.accessToken) call the right APIs.
+    const tokenToStore = profile.primaryToken ?? userToken;
+    const expiresAt = tokens.expires_in
+      ? new Date(Date.now() + (tokens.expires_in as number) * 1000)
+      : null;
+
+    await db
+      .insert(connection)
+      .values({
+        id: nanoid(),
+        userId: verified.userId,
         brandId: verified.brandId,
+        platform: platform as Platform,
+        accountId: profile.accountId,
+        accountName: profile.accountName,
+        accountHandle: profile.accountHandle,
+        avatarUrl: profile.avatarUrl,
         accessToken: tokenToStore,
         refreshToken: tokens.refresh_token ?? null,
         accessTokenExpiresAt: expiresAt,
         scope: (tokens.scope as string) ?? cfg.scopes.join(" "),
         metadata: profile.metadata,
         isActive: true,
-        updatedAt: new Date(),
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: [connection.userId, connection.platform, connection.accountId],
+        set: {
+          brandId: verified.brandId,
+          accountName: profile.accountName,
+          accountHandle: profile.accountHandle,
+          avatarUrl: profile.avatarUrl,
+          accessToken: tokenToStore,
+          refreshToken: tokens.refresh_token ?? null,
+          accessTokenExpiresAt: expiresAt,
+          scope: (tokens.scope as string) ?? cfg.scopes.join(" "),
+          metadata: profile.metadata,
+          isActive: true,
+          updatedAt: new Date(),
+        },
+      });
+    saved++;
+  }
 
-  return NextResponse.redirect(new URL("/connections?connected=" + platform, baseUrl));
+  const redirect = new URL("/connections", baseUrl);
+  redirect.searchParams.set("connected", platform);
+  redirect.searchParams.set("count", String(saved));
+  return NextResponse.redirect(redirect);
 }
 
 interface Profile {
@@ -143,10 +173,15 @@ interface Profile {
   accountHandle: string | null;
   avatarUrl: string | null;
   metadata: Record<string, unknown> | null;
+  /** When set, used as the connection's primary access token instead of the
+   * user OAuth token. For Meta this is the Page access token. */
+  primaryToken?: string;
 }
 
-async function fetchProfile(platform: Platform, accessToken: string): Promise<Profile> {
-  // Best-effort profile fetch per platform. Falls back to generic if API call fails.
+async function fetchProfiles(
+  platform: Platform,
+  accessToken: string
+): Promise<Profile[]> {
   try {
     switch (platform) {
       case "youtube": {
@@ -156,16 +191,24 @@ async function fetchProfile(platform: Platform, accessToken: string): Promise<Pr
         );
         if (res.ok) {
           const j = await res.json();
-          const c = j.items?.[0];
-          if (c) {
-            return {
-              accountId: c.id,
-              accountName: c.snippet?.title || "YouTube channel",
-              accountHandle: c.snippet?.customUrl || null,
-              avatarUrl: c.snippet?.thumbnails?.default?.url || null,
-              metadata: { channelId: c.id },
-            };
-          }
+          return (j.items ?? [])
+            .filter(Boolean)
+            .map(
+              (c: {
+                id: string;
+                snippet?: {
+                  title?: string;
+                  customUrl?: string;
+                  thumbnails?: { default?: { url?: string } };
+                };
+              }) => ({
+                accountId: c.id,
+                accountName: c.snippet?.title || "YouTube channel",
+                accountHandle: c.snippet?.customUrl || null,
+                avatarUrl: c.snippet?.thumbnails?.default?.url || null,
+                metadata: { channelId: c.id },
+              })
+            );
         }
         break;
       }
@@ -174,14 +217,20 @@ async function fetchProfile(platform: Platform, accessToken: string): Promise<Pr
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         if (res.ok) {
-          const j = await res.json();
-          return {
-            accountId: j.sub,
-            accountName: j.name || "LinkedIn",
-            accountHandle: null,
-            avatarUrl: j.picture || null,
-            metadata: { urn: `urn:li:person:${j.sub}` },
+          const j = (await res.json()) as {
+            sub: string;
+            name?: string;
+            picture?: string;
           };
+          return [
+            {
+              accountId: j.sub,
+              accountName: j.name || "LinkedIn",
+              accountHandle: null,
+              avatarUrl: j.picture || null,
+              metadata: { urn: `urn:li:person:${j.sub}` },
+            },
+          ];
         }
         break;
       }
@@ -194,90 +243,110 @@ async function fetchProfile(platform: Platform, accessToken: string): Promise<Pr
           const j = await res.json();
           const u = j.data?.user;
           if (u) {
-            return {
-              accountId: u.open_id,
-              accountName: u.display_name || "TikTok",
-              accountHandle: u.username || null,
-              avatarUrl: u.avatar_url || null,
-              metadata: { unionId: u.union_id },
-            };
+            return [
+              {
+                accountId: u.open_id,
+                accountName: u.display_name || "TikTok",
+                accountHandle: u.username || null,
+                avatarUrl: u.avatar_url || null,
+                metadata: { unionId: u.union_id },
+              },
+            ];
           }
         }
         break;
       }
       case "facebook": {
-        // Find the user's first Page and store its long-lived Page access token.
-        // Posting to a Page always uses the Page token, not the user token.
-        const res = await fetch(
-          `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,picture&access_token=${accessToken}`
-        );
-        if (res.ok) {
-          const j = await res.json();
-          const page = j.data?.[0];
-          if (page) {
-            return {
-              accountId: page.id,
-              accountName: page.name || "Facebook Page",
-              accountHandle: null,
-              avatarUrl: page.picture?.data?.url || null,
-              metadata: {
-                pageId: page.id,
-                pageAccessToken: page.access_token,
-              },
-            };
-          }
-        }
-        break;
+        // Return EVERY Page the user granted access to as its own connection.
+        const pages = await fetchAllPages(accessToken);
+        return pages.map((page) => ({
+          accountId: page.id,
+          accountName: page.name || "Facebook Page",
+          accountHandle: null,
+          avatarUrl: page.picture?.data?.url || null,
+          metadata: { pageId: page.id, pageAccessToken: page.access_token },
+          primaryToken: page.access_token,
+        }));
       }
       case "instagram": {
-        // Same /me/accounts call but we look for a Page with a linked
-        // Instagram Business account. We store the IG id + Page token; the
-        // publisher uses the Page token to call the IG Graph API.
-        const res = await fetch(
-          `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,profile_picture_url}&access_token=${accessToken}`
-        );
-        if (res.ok) {
-          const j = await res.json();
-          type IgPage = {
-            id: string;
-            name: string;
-            access_token: string;
-            instagram_business_account?: {
-              id: string;
-              username?: string;
-              profile_picture_url?: string;
-            };
-          };
-          const pages = (j.data ?? []) as IgPage[];
-          const pageWithIg = pages.find((p) => p.instagram_business_account);
-          if (pageWithIg?.instagram_business_account) {
-            const ig = pageWithIg.instagram_business_account;
+        // Every Page that has a linked Instagram Business account becomes its
+        // own IG connection (the IG account, posted via the Page token).
+        const pages = await fetchAllPages(accessToken, true);
+        return pages
+          .filter((p) => p.instagram_business_account)
+          .map((page) => {
+            const ig = page.instagram_business_account!;
             return {
               accountId: ig.id,
-              accountName: ig.username || pageWithIg.name,
+              accountName: ig.username || page.name,
               accountHandle: ig.username || null,
               avatarUrl: ig.profile_picture_url || null,
               metadata: {
                 igUserId: ig.id,
-                pageId: pageWithIg.id,
-                pageAccessToken: pageWithIg.access_token,
+                pageId: page.id,
+                pageAccessToken: page.access_token,
               },
+              primaryToken: page.access_token,
             };
-          }
-        }
-        break;
+          });
       }
     }
   } catch {
-    // fallthrough
+    // fall through to empty list
   }
-  return {
-    accountId: `unknown-${Date.now()}`,
-    accountName: `${platform} account`,
-    accountHandle: null,
-    avatarUrl: null,
-    metadata: {},
+  return [];
+}
+
+type FbPage = {
+  id: string;
+  name: string;
+  access_token: string;
+  picture?: { data?: { url?: string } };
+  instagram_business_account?: {
+    id: string;
+    username?: string;
+    profile_picture_url?: string;
   };
+};
+
+/** Paginated fetch of every Page the user manages. */
+async function fetchAllPages(
+  userToken: string,
+  includeIg = false
+): Promise<FbPage[]> {
+  const fields = includeIg
+    ? "id,name,access_token,picture,instagram_business_account{id,username,profile_picture_url}"
+    : "id,name,access_token,picture";
+
+  const pages: FbPage[] = [];
+  let url:
+    | string
+    | null =
+    `https://graph.facebook.com/v19.0/me/accounts?fields=${encodeURIComponent(fields)}&limit=100&access_token=${encodeURIComponent(userToken)}`;
+
+  while (url) {
+    const res: Response = await fetch(url);
+    if (!res.ok) break;
+    const j = (await res.json()) as {
+      data?: FbPage[];
+      paging?: { next?: string };
+    };
+    for (const p of j.data ?? []) pages.push(p);
+    url = j.paging?.next ?? null;
+    // Cap so a malformed paging cursor can't loop forever.
+    if (pages.length >= 500) break;
+  }
+  return pages;
+}
+
+function noProfilesError(platform: Platform): string {
+  if (platform === "facebook") {
+    return "No Facebook Pages found. Make sure you ticked at least one Page during the sign-in popup, and that your account is an admin of it.";
+  }
+  if (platform === "instagram") {
+    return "No Instagram Business accounts found. Your Instagram must be a Business/Creator account linked to a Facebook Page you admin.";
+  }
+  return `${platform} returned no accounts`;
 }
 
 function redirectWithError(message: string) {
