@@ -89,6 +89,15 @@ export async function GET(
   // Fetch user info per-platform (best-effort scaffolding).
   const profile = await fetchProfile(platform as Platform, tokens.access_token);
 
+  // For Meta Pages/Instagram, publishers need the *Page* access token, not the
+  // user token. fetchProfile stashes one in metadata.pageAccessToken when
+  // available — promote it to the connection's primary access token.
+  const pageAccessToken = (profile.metadata?.pageAccessToken as string | undefined) ?? null;
+  const tokenToStore =
+    (platform === "facebook" || platform === "instagram") && pageAccessToken
+      ? pageAccessToken
+      : tokens.access_token;
+
   const expiresAt = tokens.expires_in
     ? new Date(Date.now() + (tokens.expires_in as number) * 1000)
     : null;
@@ -104,7 +113,7 @@ export async function GET(
       accountName: profile.accountName,
       accountHandle: profile.accountHandle,
       avatarUrl: profile.avatarUrl,
-      accessToken: tokens.access_token,
+      accessToken: tokenToStore,
       refreshToken: tokens.refresh_token ?? null,
       accessTokenExpiresAt: expiresAt,
       scope: (tokens.scope as string) ?? cfg.scopes.join(" "),
@@ -115,10 +124,11 @@ export async function GET(
       target: [connection.userId, connection.platform, connection.accountId],
       set: {
         brandId: verified.brandId,
-        accessToken: tokens.access_token,
+        accessToken: tokenToStore,
         refreshToken: tokens.refresh_token ?? null,
         accessTokenExpiresAt: expiresAt,
         scope: (tokens.scope as string) ?? cfg.scopes.join(" "),
+        metadata: profile.metadata,
         isActive: true,
         updatedAt: new Date(),
       },
@@ -195,20 +205,65 @@ async function fetchProfile(platform: Platform, accessToken: string): Promise<Pr
         }
         break;
       }
-      case "facebook":
-      case "instagram": {
+      case "facebook": {
+        // Find the user's first Page and store its long-lived Page access token.
+        // Posting to a Page always uses the Page token, not the user token.
         const res = await fetch(
-          `https://graph.facebook.com/v19.0/me?fields=id,name,picture&access_token=${accessToken}`
+          `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,picture&access_token=${accessToken}`
         );
         if (res.ok) {
           const j = await res.json();
-          return {
-            accountId: j.id,
-            accountName: j.name || platform,
-            accountHandle: null,
-            avatarUrl: j.picture?.data?.url || null,
-            metadata: {},
+          const page = j.data?.[0];
+          if (page) {
+            return {
+              accountId: page.id,
+              accountName: page.name || "Facebook Page",
+              accountHandle: null,
+              avatarUrl: page.picture?.data?.url || null,
+              metadata: {
+                pageId: page.id,
+                pageAccessToken: page.access_token,
+              },
+            };
+          }
+        }
+        break;
+      }
+      case "instagram": {
+        // Same /me/accounts call but we look for a Page with a linked
+        // Instagram Business account. We store the IG id + Page token; the
+        // publisher uses the Page token to call the IG Graph API.
+        const res = await fetch(
+          `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,profile_picture_url}&access_token=${accessToken}`
+        );
+        if (res.ok) {
+          const j = await res.json();
+          type IgPage = {
+            id: string;
+            name: string;
+            access_token: string;
+            instagram_business_account?: {
+              id: string;
+              username?: string;
+              profile_picture_url?: string;
+            };
           };
+          const pages = (j.data ?? []) as IgPage[];
+          const pageWithIg = pages.find((p) => p.instagram_business_account);
+          if (pageWithIg?.instagram_business_account) {
+            const ig = pageWithIg.instagram_business_account;
+            return {
+              accountId: ig.id,
+              accountName: ig.username || pageWithIg.name,
+              accountHandle: ig.username || null,
+              avatarUrl: ig.profile_picture_url || null,
+              metadata: {
+                igUserId: ig.id,
+                pageId: pageWithIg.id,
+                pageAccessToken: pageWithIg.access_token,
+              },
+            };
+          }
         }
         break;
       }

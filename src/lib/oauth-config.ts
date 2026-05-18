@@ -40,10 +40,13 @@ export const OAUTH_CONFIG: Record<Platform, OAuthConfig> = {
     name: "Instagram",
     authUrl: "https://www.facebook.com/v19.0/dialog/oauth",
     tokenUrl: "https://graph.facebook.com/v19.0/oauth/access_token",
+    // Meta deprecated instagram_basic / instagram_content_publish as direct
+    // OAuth scopes in Login for Business. The Instagram Business account is
+    // now reached via the linked Page's access token.
     scopes: [
-      "instagram_basic",
-      "instagram_content_publish",
       "pages_show_list",
+      "pages_read_engagement",
+      "pages_manage_posts",
       "business_management",
     ],
     clientIdEnv: "META_CLIENT_ID",
