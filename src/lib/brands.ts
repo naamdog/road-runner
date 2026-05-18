@@ -1,57 +1,61 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "./db";
 import { brand, connection, post } from "./db/schema";
+import { BRAND_COLORS } from "./brand-colors";
 
-/** Hex colors used as defaults for new brands, cycled through. */
-export const BRAND_COLORS = [
-  "#CCFF00", // electric lime — Road Runner brand
-  "#4FB3FF", // sky
-  "#FF66A8", // pink
-  "#FFB02A", // amber
-  "#2BD472", // green
-  "#A78BFA", // violet
-  "#FF7849", // coral
-  "#06D6A0", // teal
-];
+export { BRAND_COLORS };
 
 /**
  * Get all brands the user has, in display order.
- * If they have none, create a default "Personal" brand and return it.
+ * If they have none, create a single default "Personal" brand and return it.
+ *
+ * Race-safe: every authenticated page calls this on render, so on the first
+ * visit several parallel calls will all see "no brands yet" and try to insert.
+ * We use a deterministic id (`default_<userId>`) so the second-onward inserts
+ * collide on the primary key and ON CONFLICT DO NOTHING makes them no-ops.
+ * The user ends up with exactly one default brand.
  */
 export async function getOrCreateBrands(userId: string) {
-  const rows = await db
+  const existing = await db
     .select()
     .from(brand)
     .where(eq(brand.userId, userId))
     .orderBy(brand.sortOrder, brand.createdAt);
 
-  if (rows.length > 0) return rows;
+  if (existing.length > 0) return existing;
 
-  const id = nanoid();
-  const inserted = await db
+  const defaultId = `default_${userId}`;
+  await db
     .insert(brand)
     .values({
-      id,
+      id: defaultId,
       userId,
       name: "Personal",
       color: BRAND_COLORS[0],
       sortOrder: 0,
       isDefault: true,
     })
-    .returning();
+    .onConflictDoNothing();
 
-  // Adopt any pre-existing connections / posts that have no brand yet.
-  await db
-    .update(connection)
-    .set({ brandId: id, updatedAt: new Date() })
-    .where(and(eq(connection.userId, userId), isNull(connection.brandId)));
-  await db
-    .update(post)
-    .set({ brandId: id, updatedAt: new Date() })
-    .where(and(eq(post.userId, userId), isNull(post.brandId)));
+  const rows = await db
+    .select()
+    .from(brand)
+    .where(eq(brand.userId, userId))
+    .orderBy(brand.sortOrder, brand.createdAt);
 
-  return inserted;
+  if (rows.length > 0) {
+    const adoptId = rows[0].id;
+    await db
+      .update(connection)
+      .set({ brandId: adoptId, updatedAt: new Date() })
+      .where(and(eq(connection.userId, userId), isNull(connection.brandId)));
+    await db
+      .update(post)
+      .set({ brandId: adoptId, updatedAt: new Date() })
+      .where(and(eq(post.userId, userId), isNull(post.brandId)));
+  }
+
+  return rows;
 }
 
 /**
