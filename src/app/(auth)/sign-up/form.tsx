@@ -33,18 +33,30 @@ export function SignUpForm() {
 
     setPending(true);
     try {
-      const { error } = await authClient.signUp.email({
+      const { error: signUpError } = await authClient.signUp.email({
         name,
         email,
         password,
       });
-      if (error) {
-        toast.error(error.message || "Sign up failed.");
+      if (signUpError) {
+        toast.error(signUpError.message || "Sign up failed.");
+        return;
+      }
+      // Explicitly sign in so the session cookie is reliably set on this
+      // browser before we navigate. (autoSignIn on the server isn't always
+      // round-tripped to the client in time for the redirect.)
+      const { error: signInError } = await authClient.signIn.email({
+        email,
+        password,
+      });
+      if (signInError) {
+        toast.success("Account made. Sign in to continue.");
+        router.push("/login");
         return;
       }
       toast.success("Welcome to Road Runner.");
-      router.push("/dashboard");
-      router.refresh();
+      // Hard nav so the new cookie is sent on the next request without any race.
+      window.location.assign("/dashboard");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Sign up failed.");
     } finally {
