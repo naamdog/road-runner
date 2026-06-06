@@ -1068,8 +1068,10 @@ function toTimeInput(d: Date): string {
 }
 
 function localToIso(date: string, time: string): string {
+  if (!date || !time) return "";
   const [y, m, d] = date.split("-").map(Number);
   const [hh, mm] = time.split(":").map(Number);
   const dt = new Date(y, m - 1, d, hh, mm, 0, 0);
+  if (Number.isNaN(dt.getTime())) return "";
   return dt.toISOString();
 }

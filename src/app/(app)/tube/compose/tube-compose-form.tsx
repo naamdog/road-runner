@@ -1105,13 +1105,20 @@ function toTimeInput(d: Date): string {
 }
 
 function localToIso(date: string, time: string): string {
+  // Native date/time inputs report an empty value mid-edit; guard so an Invalid
+  // Date never reaches toISOString() (which throws) during render.
+  if (!date || !time) return "";
   const [y, m, d] = date.split("-").map(Number);
   const [hh, mm] = time.split(":").map(Number);
-  return new Date(y, m - 1, d, hh, mm, 0, 0).toISOString();
+  const dt = new Date(y, m - 1, d, hh, mm, 0, 0);
+  if (Number.isNaN(dt.getTime())) return "";
+  return dt.toISOString();
 }
 
 function labelFromIso(iso: string): string {
+  if (!iso) return "Pick a date & time";
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Pick a date & time";
   const today = new Date();
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
