@@ -7,34 +7,25 @@ import {
   Plus,
   CalendarDays,
   Link2,
-  Repeat,
   Settings,
   Tv,
   Users,
-  Keyboard,
 } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/dashboard", label: "Home", icon: LayoutDashboard, shortcut: "G D" },
-  { href: "/compose", label: "New short", icon: Plus, primary: true, shortcut: "C" },
-  { href: "/tube", label: "TubeRunner", icon: Tv, shortcut: "G T" },
-  { href: "/re-runner", label: "Re-runner", icon: Repeat, shortcut: "G R" },
-  { href: "/scheduled", label: "Lined up", icon: CalendarDays, shortcut: "G S" },
-  { href: "/connections", label: "Accounts", icon: Link2, shortcut: "G A" },
-  { href: "/brands", label: "Brands", icon: Users, shortcut: "G B" },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/compose", label: "New Short / Reel", icon: Plus, primary: true },
+  { href: "/tube", label: "YouTube Long Form", icon: Tv },
+  { href: "/scheduled", label: "Scheduled", icon: CalendarDays },
+  { href: "/connections", label: "Platform connections", icon: Link2 },
+  { href: "/brands", label: "Brands", icon: Users },
 ];
 
-const secondary = [
-  { href: "/settings", label: "Settings", icon: Settings },
-];
+const secondary = [{ href: "/settings", label: "Settings", icon: Settings }];
 
-export function Sidebar({
-  onOpenPalette,
-}: {
-  onOpenPalette?: () => void;
-}) {
+export function Sidebar() {
   const pathname = usePathname();
   return (
     <aside className="hidden lg:flex w-60 shrink-0 flex-col border-r border-border bg-surface/40 backdrop-blur sticky top-0 h-svh">
@@ -63,7 +54,6 @@ export function Sidebar({
               >
                 <Icon className="size-4" />
                 <span>{item.label}</span>
-                <span className="ml-auto font-mono text-[10px] opacity-70">{item.shortcut}</span>
               </Link>
             );
           }
@@ -80,23 +70,12 @@ export function Sidebar({
             >
               <Icon className="size-4" />
               <span>{item.label}</span>
-              <span className="ml-auto font-mono text-[10px] opacity-50">{item.shortcut}</span>
             </Link>
           );
         })}
       </nav>
 
       <div className="p-2.5 border-t border-border/60 space-y-0.5">
-        {onOpenPalette ? (
-          <button
-            onClick={onOpenPalette}
-            className="w-full flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-surface-2/70 transition-colors"
-          >
-            <Keyboard className="size-4" />
-            <span>Command palette</span>
-            <span className="ml-auto font-mono text-[10px] opacity-60">⌘K</span>
-          </button>
-        ) : null}
         {secondary.map((item) => {
           const Icon = item.icon;
           const active = pathname.startsWith(item.href);

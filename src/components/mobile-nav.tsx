@@ -8,7 +8,6 @@ import {
   Plus,
   CalendarDays,
   Link2,
-  Repeat,
   Settings,
   Tv,
   Users,
@@ -19,12 +18,11 @@ import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/compose", label: "New short", icon: Plus, primary: true },
-  { href: "/tube", label: "TubeRunner", icon: Tv },
-  { href: "/re-runner", label: "Re-runner", icon: Repeat },
-  { href: "/scheduled", label: "Lined up", icon: CalendarDays },
-  { href: "/connections", label: "Accounts", icon: Link2 },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/compose", label: "New Short / Reel", icon: Plus, primary: true },
+  { href: "/tube", label: "YouTube Long Form", icon: Tv },
+  { href: "/scheduled", label: "Scheduled", icon: CalendarDays },
+  { href: "/connections", label: "Platform connections", icon: Link2 },
   { href: "/brands", label: "Brands", icon: Users },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

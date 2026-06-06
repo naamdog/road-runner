@@ -12,7 +12,7 @@ export default async function SettingsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage your account and preferences.
+          The boring-but-important bits — your name, your password, and the big scary delete button. Your timezone sorts itself out automatically now.
         </p>
       </div>
       <SettingsForms

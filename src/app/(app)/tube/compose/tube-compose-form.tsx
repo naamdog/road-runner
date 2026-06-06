@@ -442,7 +442,7 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error || "Could not line it up.");
       }
-      toast.success("Lined up.");
+      toast.success("Scheduled.");
       router.push("/tube");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not line it up.");
@@ -477,6 +477,9 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
             <Tv className="size-5 text-brand" />
             New long video
           </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Upload a full-length video to YouTube with everything dialled in — title, description, tags, thumbnail, playlist and a scheduled time.
+          </p>
           <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
             {activeBrand ? (
               <span className="inline-flex items-center gap-1.5">
@@ -509,7 +512,7 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
             {submitting ? (
               <>
                 <Loader2 className="size-4 animate-spin" />
-                Lining up…
+                Scheduling…
               </>
             ) : (
               <>

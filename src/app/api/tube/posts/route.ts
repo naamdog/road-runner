@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   }
   if (conn.platform !== "youtube") {
     return NextResponse.json(
-      { error: "Pick a YouTube account for TubeRunner posts" },
+      { error: "Pick a YouTube account for YouTube Long Form posts" },
       { status: 400 }
     );
   }

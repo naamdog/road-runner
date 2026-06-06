@@ -42,9 +42,8 @@ export default async function BrandsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Brands</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          One Road Runner login, many brands. Each brand has its own social
-          accounts — keep your work, side project, and side-side project on
-          their own tracks.
+          Juggling more than one identity? Give each brand its own accounts,
+          posts and colour, and flip between them from the top bar.
         </p>
       </div>
 

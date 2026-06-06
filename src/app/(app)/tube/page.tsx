@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { TubeList, type TubeRow } from "./tube-list";
 
-export const metadata: Metadata = { title: "TubeRunner" };
+export const metadata: Metadata = { title: "YouTube Long Form" };
 export const dynamic = "force-dynamic";
 
 export default async function TubePage() {
@@ -91,7 +91,7 @@ export default async function TubePage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
             <Tv className="size-5 text-brand" />
-            TubeRunner
+            YouTube Long Form
           </h1>
           <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
             {activeBrand ? (
@@ -100,10 +100,10 @@ export default async function TubePage() {
                   className="size-2 rounded-full"
                   style={{ background: activeBrand.color }}
                 />
-                Long videos for YouTube — posting for <span className="text-foreground font-medium">{activeBrand.name}</span>
+                Proper long-form YouTube uploads — titles, tags, thumbnails, playlists, the lot. Landscape lives here; vertical clips belong in &apos;New Short / Reel&apos;. Posting for <span className="text-foreground font-medium">{activeBrand.name}</span>
               </>
             ) : (
-              <>Long videos for YouTube — title, description, thumbnail, the works.</>
+              <>Proper long-form YouTube uploads — titles, tags, thumbnails, playlists, the lot. Landscape lives here; vertical clips belong in &apos;New Short / Reel&apos;.</>
             )}
           </p>
         </div>
@@ -121,10 +121,10 @@ export default async function TubePage() {
             <Tv className="size-5 text-muted-foreground" />
           </div>
           <h3 className="mt-3 text-sm font-semibold">
-            Connect YouTube to use TubeRunner
+            Connect YouTube to use YouTube Long Form
           </h3>
           <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
-            TubeRunner posts go to YouTube as full videos. Connect a YouTube
+            YouTube Long Form posts go to YouTube as full videos. Connect a YouTube
             account to this brand to start.
           </p>
           <Button asChild variant="brand" size="sm" className="mt-4">

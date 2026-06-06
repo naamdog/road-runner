@@ -193,7 +193,7 @@ function HowItWorks() {
       <div className="container-page">
         <SectionHeader
           eyebrow="How it works"
-          title="From upload to lined up in 60 seconds."
+          title="From upload to scheduled in 60 seconds."
           description="No long forms. No copy and paste. One screen, three steps."
         />
         <div className="mt-12 grid md:grid-cols-3 gap-4">
@@ -224,11 +224,6 @@ function HowItWorks() {
 function Features() {
   const features = [
     {
-      title: "Re-runner — your best, again.",
-      body: "See your top videos from every app, ranked by views. Tap one to pull the file and post it again.",
-      featured: true,
-    },
-    {
       title: "Multiple brands.",
       body: "One log-in, as many brands as you want. Each brand has its own social accounts.",
     },
@@ -252,10 +247,6 @@ function Features() {
       title: "Calendar or list view.",
       body: "See your week at a glance, or your queue as a feed. Move a post with one tap.",
     },
-    {
-      title: "Built for keyboard.",
-      body: "Cmd+K opens the command bar. Jump anywhere, post anything, in seconds.",
-    },
   ];
   return (
     <section id="features" className="py-24 border-t border-border/60">
@@ -269,20 +260,11 @@ function Features() {
           {features.map((f) => (
             <div
               key={f.title}
-              className={`rounded-xl border p-5 transition-colors ${
-                f.featured
-                  ? "border-brand/40 bg-brand/[0.04] hover:bg-brand/[0.06] md:col-span-2 lg:col-span-1 lg:row-span-1"
-                  : "border-border bg-surface/50 hover:bg-surface/80"
-              }`}
+              className="rounded-xl border border-border bg-surface/50 p-5 transition-colors hover:bg-surface/80"
             >
-              <div className={`size-1.5 rounded-full ${f.featured ? "bg-brand" : "bg-brand"}`} />
+              <div className="size-1.5 rounded-full bg-brand" />
               <h3 className="mt-4 text-base font-semibold tracking-tight">{f.title}</h3>
               <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{f.body}</p>
-              {f.featured ? (
-                <div className="mt-4 inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-brand font-semibold">
-                  New
-                </div>
-              ) : null}
             </div>
           ))}
         </div>

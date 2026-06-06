@@ -93,7 +93,7 @@ export function TubeList({ rows }: { rows: TubeRow[] }) {
         <Tabs value={filter} onValueChange={(v) => setFilter(v as never)}>
           <TabsList>
             <TabsTrigger value="all">All</TabsTrigger>
-            <TabsTrigger value="scheduled">Lined up</TabsTrigger>
+            <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
             <TabsTrigger value="published">Posted</TabsTrigger>
             <TabsTrigger value="failed">Failed</TabsTrigger>
           </TabsList>
@@ -225,7 +225,7 @@ function VisibilityBadge({ v }: { v: TubeRow["visibility"] }) {
 
 function StatusBadge({ status }: { status: PostStatus }) {
   const map = {
-    scheduled: { variant: "default" as const, Icon: Clock, label: "Lined up" },
+    scheduled: { variant: "default" as const, Icon: Clock, label: "Scheduled" },
     publishing: { variant: "warning" as const, Icon: Loader2, label: "Uploading" },
     published: { variant: "success" as const, Icon: CheckCircle2, label: "Posted" },
     failed: { variant: "destructive" as const, Icon: AlertCircle, label: "Failed" },

@@ -23,7 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { getOrCreateBrands } from "@/lib/brands";
 import { readActiveBrandCookie } from "@/lib/active-brand";
 
-export const metadata: Metadata = { title: "Home" };
+export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
@@ -53,6 +53,10 @@ export default async function DashboardPage() {
           <h1 className="text-2xl font-semibold tracking-tight">
             {greeting()}, {firstName}.
           </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Mission control — what's scheduled, what's already live, and which
+            platforms are plugged in. No spreadsheet, no five open tabs.
+          </p>
           <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
             {activeBrand ? (
               <>
@@ -70,7 +74,7 @@ export default async function DashboardPage() {
         <Button asChild variant="brand">
           <Link href="/compose" className="gap-1.5">
             <Plus className="size-4" />
-            New post
+            New Short / Reel
           </Link>
         </Button>
       </div>
@@ -78,7 +82,7 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           icon={CalendarDays}
-          label="Lined up"
+          label="Scheduled"
           value={stats.scheduled}
           accent
         />
@@ -121,7 +125,7 @@ export default async function DashboardPage() {
             {upcoming.length === 0 ? (
               <EmptyState
                 icon={Timer}
-                title="Nothing lined up yet"
+                title="Nothing scheduled yet"
                 description="Drop a video, write a caption, pick your times. That's it."
                 actionLabel="Make your first post"
                 actionHref="/compose"
@@ -163,7 +167,7 @@ export default async function DashboardPage() {
             <div className="flex items-center justify-between p-5 pb-3">
               <div>
                 <h2 className="text-base font-semibold tracking-tight">
-                  Accounts
+                  Platform connections
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Apps you can post to from this brand.

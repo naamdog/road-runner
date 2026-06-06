@@ -45,11 +45,10 @@ export function SettingsForms({
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const name = String(fd.get("name") || "");
-    const timezone = String(fd.get("timezone") || "UTC");
 
     setSavingProfile(true);
     try {
-      await authClient.updateUser({ name, timezone });
+      await authClient.updateUser({ name });
       toast.success("Profile updated.");
       router.refresh();
     } catch (err) {
@@ -113,7 +112,8 @@ export function SettingsForms({
           <div className="p-5 pb-3">
             <h2 className="text-base font-semibold tracking-tight">Profile</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Your name and timezone.
+              Your display name. (Timezone is detected automatically from your
+              browser — no fiddling required.)
             </p>
           </div>
           <Separator />
@@ -139,24 +139,6 @@ export function SettingsForms({
                   className="opacity-70 cursor-not-allowed"
                 />
               </div>
-            </div>
-            <div className="space-y-1.5 max-w-sm">
-              <Label htmlFor="timezone">Timezone</Label>
-              <select
-                id="timezone"
-                name="timezone"
-                defaultValue={user.timezone}
-                className="h-9 w-full rounded-md border border-border bg-surface px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:border-brand/60 [color-scheme:dark]"
-              >
-                {TIMEZONES.map((tz) => (
-                  <option key={tz} value={tz}>
-                    {tz}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-muted-foreground">
-                All scheduling will use this timezone unless you set a per-post override.
-              </p>
             </div>
           </CardContent>
           <div className="flex justify-end p-5 pt-0">

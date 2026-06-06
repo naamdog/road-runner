@@ -66,10 +66,11 @@ export default async function ConnectionsPage() {
     <div className="container-page py-7 max-w-4xl">
       <div className="mb-6 flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Platform connections</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Connect each social account once. Then post from any brand in one
-            click.
+            Plug in your accounts — YouTube, Instagram, Facebook and friends.
+            Connect once and post forever (until a login expires and asks for a
+            quick reconnect).
           </p>
         </div>
         <Button asChild variant="outline" size="sm" className="gap-1.5">

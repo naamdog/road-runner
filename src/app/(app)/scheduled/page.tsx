@@ -10,7 +10,7 @@ import { ScheduledView } from "./scheduled-view";
 import { getOrCreateBrands } from "@/lib/brands";
 import { readActiveBrandCookie } from "@/lib/active-brand";
 
-export const metadata: Metadata = { title: "Lined up" };
+export const metadata: Metadata = { title: "Scheduled" };
 export const dynamic = "force-dynamic";
 
 export default async function ScheduledPage() {
@@ -35,7 +35,10 @@ export default async function ScheduledPage() {
     <div className="container-page py-7 max-w-6xl">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Lined up</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Scheduled</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Everything you&apos;ve queued, in order. Watch each post go scheduled &rarr; published &mdash; and nudge any that trip over their own shoelaces.
+          </p>
           <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
             {activeBrand ? (
               <>
@@ -46,7 +49,7 @@ export default async function ScheduledPage() {
                 Showing posts for <span className="text-foreground font-medium">{activeBrand.name}</span>
               </>
             ) : (
-              <>All your lined-up and finished posts.</>
+              <>All your scheduled and finished posts.</>
             )}
           </p>
         </div>

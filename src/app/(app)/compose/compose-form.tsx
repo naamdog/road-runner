@@ -433,16 +433,16 @@ export function ComposeForm({
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || "Could not line it up.");
+        throw new Error(j.error || "Couldn't schedule it.");
       }
       toast.success(
         selectedConnections.length > 1
-          ? `Lined up across ${selectedConnections.length} accounts.`
-          : "Lined up."
+          ? `Scheduled across ${selectedConnections.length} accounts.`
+          : "Scheduled."
       );
       router.push("/scheduled");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not line it up.");
+      toast.error(err instanceof Error ? err.message : "Couldn't schedule it.");
     } finally {
       setSubmitting(false);
     }
@@ -477,7 +477,7 @@ export function ComposeForm({
     return (
       <div className="container-page py-7 max-w-3xl">
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">New post</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">New Short / Reel</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Connect your first social account to start posting.
           </p>
@@ -519,12 +519,12 @@ export function ComposeForm({
               {prefillSource === "library"
                 ? "Re-running from your library — video and caption are ready."
                 : prefillMedia
-                ? `Pulled from ${prefillSource ?? "your platform"} — ready to line up.`
+                ? `Pulled from ${prefillSource ?? "your platform"} — ready to schedule.`
                 : `Caption from ${prefillSource ?? "your platform"} pre-filled — pick the video to keep going.`}
             </div>
             <div className="text-xs text-muted-foreground mt-0.5">
               Every connected account in this brand is picked. Set the times
-              and hit "Line up".
+              and hit "Schedule".
             </div>
           </div>
           {prefillPermalink ? (
@@ -557,9 +557,14 @@ export function ComposeForm({
                 Re-run
               </>
             ) : (
-              "New post"
+              "New Short / Reel"
             )}
           </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            One vertical video, everywhere at once — YouTube Shorts, Instagram
+            Reels, Facebook Reels, TikTok and LinkedIn, each on its own schedule.
+            Lazy, the smart way.
+          </p>
           <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
             {activeBrand ? (
               <span className="inline-flex items-center gap-1.5">
@@ -592,12 +597,12 @@ export function ComposeForm({
             {submitting ? (
               <>
                 <Loader2 className="size-4 animate-spin" />
-                Lining up…
+                Scheduling…
               </>
             ) : (
               <>
                 <Zap className="size-4" />
-                Line up {selectedConnections.length > 0 ? `(${selectedConnections.length})` : ""}
+                Schedule {selectedConnections.length > 0 ? `(${selectedConnections.length})` : ""}
               </>
             )}
           </Button>
@@ -756,7 +761,7 @@ export function ComposeForm({
                     href="/tube/compose"
                     className="text-brand hover:underline font-medium"
                   >
-                    TubeRunner →
+                    YouTube Long Form →
                   </Link>
                 </p>
               ) : null}
