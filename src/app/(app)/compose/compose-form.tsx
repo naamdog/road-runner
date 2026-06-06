@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
+  AlertTriangle,
   Calendar,
   Check,
   Clock,
@@ -94,6 +95,7 @@ export function ComposeForm({
   const [duration, setDuration] = useState<number | null>(
     prefillMedia?.durationMs ?? null
   );
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedUrl, setUploadedUrl] = useState<string | null>(
@@ -140,6 +142,36 @@ export function ComposeForm({
 
   const captionOver = captionMode === "single" && singleCaption.length > captionMax;
   const hashtagCount = (singleCaption.match(/#\w+/g) || []).length;
+
+  // Orientation + length guidance: the short-form ("New post") surfaces are
+  // vertical (Shorts/Reels). Detect the video shape so a landscape clip can't
+  // silently go to the wrong place, and check each picked account's specs.
+  const orientation: "portrait" | "landscape" | "square" | null = dims
+    ? dims.h > dims.w * 1.05
+      ? "portrait"
+      : dims.w > dims.h * 1.05
+        ? "landscape"
+        : "square"
+    : null;
+  const durationSec = duration != null ? duration / 1000 : null;
+
+  function platformFit(platform: Platform): { ok: boolean; note: string } {
+    const spec = PLATFORM_META[platform].videoSpecs;
+    if (durationSec != null) {
+      if (durationSec > spec.maxDurationSec)
+        return { ok: false, note: `max ${spec.maxDurationSec}s` };
+      if (durationSec < spec.minDurationSec)
+        return { ok: false, note: `min ${spec.minDurationSec}s` };
+    }
+    if (orientation === "landscape" && !spec.aspectRatios.includes("16:9")) {
+      return { ok: false, note: "needs vertical" };
+    }
+    return { ok: true, note: "" };
+  }
+
+  const fitProblems = selectedConnections
+    .map((c) => ({ c, fit: platformFit(c.platform) }))
+    .filter((x) => !x.fit.ok);
 
   // The viewer's ACTUAL timezone, read from the browser, so the time they pick
   // is exactly the time it posts (display and when→UTC conversion now agree).
@@ -188,6 +220,9 @@ export function ComposeForm({
     v.crossOrigin = "anonymous";
     v.onloadedmetadata = () => {
       setDuration(Math.round(v.duration * 1000));
+      if (v.videoWidth && v.videoHeight) {
+        setDims({ w: v.videoWidth, h: v.videoHeight });
+      }
     };
   }, [previewUrl, existingMediaId]);
 
@@ -419,6 +454,7 @@ export function ComposeForm({
     setUploadedPathname(null);
     setPreviewUrl(null);
     setDuration(null);
+    setDims(null);
     setSingleCaption("");
     setPerTargetCaptions({});
     setFilename(null);
@@ -676,6 +712,77 @@ export function ComposeForm({
                 <Trash2 className="size-3.5" />
                 Remove
               </button>
+            </Card>
+          ) : null}
+
+          {dims && (file || existingMediaId) ? (
+            <Card
+              className={cn(
+                "p-3.5 text-xs",
+                orientation === "landscape" &&
+                  "border-amber-500/40 bg-amber-500/[0.06]"
+              )}
+            >
+              <div className="flex items-center gap-2">
+                {orientation === "portrait" ? (
+                  <>
+                    <Check className="size-4 text-brand shrink-0" />
+                    <span className="font-medium text-foreground">
+                      Portrait video — perfect for Shorts &amp; Reels.
+                    </span>
+                  </>
+                ) : orientation === "landscape" ? (
+                  <>
+                    <AlertTriangle className="size-4 text-amber-500 shrink-0" />
+                    <span className="font-medium text-foreground">
+                      This is a landscape video.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Info className="size-4 text-muted-foreground shrink-0" />
+                    <span className="font-medium text-foreground">
+                      Square video.
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {orientation === "landscape" ? (
+                <p className="mt-1.5 text-muted-foreground leading-relaxed">
+                  Shorts &amp; Reels want vertical (9:16). For a long-form YouTube
+                  upload, use{" "}
+                  <Link
+                    href="/tube/compose"
+                    className="text-brand hover:underline font-medium"
+                  >
+                    TubeRunner →
+                  </Link>
+                </p>
+              ) : null}
+
+              {fitProblems.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {fitProblems.map(({ c, fit }) => (
+                    <span
+                      key={c.id}
+                      className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400"
+                    >
+                      <PlatformIcon platform={c.platform} size={11} />
+                      {PLATFORM_META[c.platform].shortName}: {fit.note}
+                    </span>
+                  ))}
+                </div>
+              ) : selectedConnections.length > 0 ? (
+                <p className="mt-1.5 text-muted-foreground">
+                  Fits every picked account.
+                </p>
+              ) : null}
+
+              <p className="mt-2 font-mono text-[11px] text-subtle-foreground">
+                {dims.w}×{dims.h}
+                {durationSec ? ` · ${Math.round(durationSec)}s` : ""}
+              </p>
             </Card>
           ) : null}
         </div>
