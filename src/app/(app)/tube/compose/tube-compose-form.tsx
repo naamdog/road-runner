@@ -128,6 +128,21 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
     accounts.find((a) => a.id === accountId)?.accountName ?? "Your channel";
   const scheduledIso = useMemo(() => localToIso(date, time), [date, time]);
   const scheduledLabel = useMemo(() => labelFromIso(scheduledIso), [scheduledIso]);
+  // Viewer's actual timezone (browser), matching how the time is converted.
+  const tz = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || timezone;
+    } catch {
+      return timezone;
+    }
+  }, [timezone]);
+  const tzOffsetLabel = useMemo(() => {
+    const off = -new Date().getTimezoneOffset();
+    const sign = off >= 0 ? "+" : "-";
+    const h = Math.floor(Math.abs(off) / 60);
+    const m = Math.abs(off) % 60;
+    return `UTC${sign}${h}${m ? ":" + String(m).padStart(2, "0") : ""}`;
+  }, []);
   const durationLabel = duration ? formatDuration(duration) : null;
   const inFuture = new Date(scheduledIso).getTime() > Date.now() + 60_000;
 
@@ -342,7 +357,6 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
         access: "public",
         handleUploadUrl: "/api/upload",
         contentType: f.type,
-        multipart: true,
         clientPayload: JSON.stringify({ kind: isThumb ? "image" : "video" }),
         onUploadProgress: isThumb
           ? undefined
@@ -474,7 +488,11 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
               </span>
             ) : null}
             <span>·</span>
-            <span>Your time zone: <span className="text-foreground font-medium">{timezone}</span></span>
+            <span>
+              Times in{" "}
+              <span className="text-foreground font-semibold">{tz}</span>{" "}
+              <span className="text-muted-foreground">({tzOffsetLabel})</span>
+            </span>
           </p>
         </div>
         <div className="hidden lg:flex gap-2">

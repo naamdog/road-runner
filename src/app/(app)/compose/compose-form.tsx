@@ -120,7 +120,9 @@ export function ComposeForm({
   );
 
   const [schedules, setSchedules] = useState<Record<string, Schedule>>(() =>
-    defaultSchedules(connections, isRerun)
+    // Pre-select on re-run, or when there's a single account (no need to make
+    // the user tick their only account before the time fields work).
+    defaultSchedules(connections, isRerun || connections.length === 1)
   );
   const [submitting, setSubmitting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -138,6 +140,38 @@ export function ComposeForm({
 
   const captionOver = captionMode === "single" && singleCaption.length > captionMax;
   const hashtagCount = (singleCaption.match(/#\w+/g) || []).length;
+
+  // The viewer's ACTUAL timezone, read from the browser, so the time they pick
+  // is exactly the time it posts (display and when→UTC conversion now agree).
+  const tz = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || timezone;
+    } catch {
+      return timezone;
+    }
+  }, [timezone]);
+  const tzOffsetLabel = useMemo(() => {
+    const off = -new Date().getTimezoneOffset();
+    const sign = off >= 0 ? "+" : "-";
+    const h = Math.floor(Math.abs(off) / 60);
+    const m = Math.abs(off) % 60;
+    return `UTC${sign}${h}${m ? ":" + String(m).padStart(2, "0") : ""}`;
+  }, []);
+
+  function applyPresetToEnabled(d: Date) {
+    const enabled = connections.filter((c) => schedules[c.id]?.enabled);
+    if (enabled.length === 0) {
+      toast.error("Tick an account first.");
+      return;
+    }
+    setSchedules((prev) => {
+      const next = { ...prev };
+      for (const c of enabled) {
+        next[c.id] = { ...next[c.id], date: toDateInput(d), time: toTimeInput(d) };
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!file) return;
@@ -190,7 +224,6 @@ export function ComposeForm({
         access: "public",
         handleUploadUrl: "/api/upload",
         contentType: f.type,
-        multipart: true,
         clientPayload: JSON.stringify({ kind: "video" }),
         onUploadProgress: (p) => setUploadProgress(Math.round(p.percentage)),
       });
@@ -502,7 +535,11 @@ export function ComposeForm({
               </span>
             ) : null}
             <span>·</span>
-            <span>Your time zone: <span className="text-foreground font-medium">{timezone}</span></span>
+            <span>
+              Times in{" "}
+              <span className="text-foreground font-semibold">{tz}</span>{" "}
+              <span className="text-muted-foreground">({tzOffsetLabel})</span>
+            </span>
           </p>
         </div>
         <div className="flex gap-2">
@@ -807,6 +844,27 @@ export function ComposeForm({
               </div>
             </div>
             <Separator />
+            <div className="px-5 py-3 bg-brand/[0.06] border-b border-border flex flex-wrap items-center gap-x-3 gap-y-2">
+              <div className="inline-flex items-center gap-1.5 text-sm">
+                <Clock className="size-4 text-brand" />
+                <span className="text-muted-foreground">All times in your timezone:</span>
+                <span className="font-semibold text-foreground">{tz}</span>
+                <span className="text-xs text-muted-foreground">({tzOffsetLabel})</span>
+              </div>
+              <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs text-muted-foreground">Quick set:</span>
+                {TIME_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => applyPresetToEnabled(p.get())}
+                    className="h-7 px-2.5 rounded-md border border-border bg-surface text-xs font-medium hover:bg-surface-2 hover:border-border-strong transition-colors"
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="divide-y divide-border">
               {Array.from(groupedConnections.entries()).map(([platform, accounts]) => (
                 <div key={platform}>
@@ -860,6 +918,11 @@ export function ComposeForm({
                                 {PLATFORM_META[c.platform].shortName}
                               </div>
                             )}
+                            {s.enabled && s.date && s.time ? (
+                              <div className="text-[11px] font-medium text-brand truncate">
+                                {humanWhen(s.date, s.time)}
+                              </div>
+                            ) : null}
                           </div>
                         </button>
 
@@ -931,6 +994,42 @@ export function ComposeForm({
 
 function randomId(): string {
   return Math.random().toString(36).slice(2, 10);
+}
+
+const TIME_PRESETS: { label: string; get: () => Date }[] = [
+  { label: "In 1 hour", get: () => new Date(Date.now() + 60 * 60 * 1000) },
+  {
+    label: "Tonight 6pm",
+    get: () => {
+      const d = new Date();
+      d.setHours(18, 0, 0, 0);
+      if (d.getTime() < Date.now() + 60_000) d.setDate(d.getDate() + 1);
+      return d;
+    },
+  },
+  {
+    label: "Tomorrow 9am",
+    get: () => {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      d.setHours(9, 0, 0, 0);
+      return d;
+    },
+  },
+];
+
+/** Human-readable local wall-clock time, e.g. "Sat, Jun 7, 8:00 AM". */
+function humanWhen(date: string, time: string): string {
+  if (!date || !time) return "";
+  const [y, m, d] = date.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+  return new Date(y, m - 1, d, hh, mm).toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function defaultSchedules(
