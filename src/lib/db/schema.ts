@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -110,7 +111,12 @@ export const brand = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("brand_user_idx").on(t.userId)]
+  (t) => [
+    index("brand_user_idx").on(t.userId),
+    uniqueIndex("brand_user_default_unq")
+      .on(t.userId)
+      .where(sql`is_default`),
+  ]
 );
 
 /** A user-connected social account, scoped to one brand. */
@@ -133,6 +139,9 @@ export const connection = pgTable(
     scope: text("scope"),
     metadata: json("metadata").$type<Record<string, unknown>>(),
     isActive: boolean("is_active").notNull().default(true),
+    needsReconnect: boolean("needs_reconnect").notNull().default(false),
+    lastRefreshedAt: timestamp("last_refreshed_at", { withTimezone: true }),
+    lastRefreshError: text("last_refresh_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -144,6 +153,7 @@ export const connection = pgTable(
       t.platform,
       t.accountId
     ),
+    index("connection_needs_reconnect_idx").on(t.needsReconnect),
   ]
 );
 
@@ -182,12 +192,16 @@ export const post = pgTable(
     /** Default caption — used when a target row has no override. */
     caption: text("caption").notNull().default(""),
     title: text("title"),
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("post_user_idx").on(t.userId),
     index("post_brand_idx").on(t.brandId),
+    uniqueIndex("post_user_idempotency_unq")
+      .on(t.userId, t.idempotencyKey)
+      .where(sql`idempotency_key is not null`),
   ]
 );
 
@@ -224,6 +238,8 @@ export const postTarget = pgTable(
     index("post_target_post_idx").on(t.postId),
     index("post_target_scheduled_idx").on(t.scheduledAt),
     index("post_target_status_idx").on(t.status),
+    uniqueIndex("post_target_post_conn_unq").on(t.postId, t.connectionId),
+    index("post_target_connection_idx").on(t.connectionId),
   ]
 );
 
@@ -281,6 +297,7 @@ export const tubePost = pgTable(
     index("tube_post_brand_idx").on(t.brandId),
     index("tube_post_scheduled_idx").on(t.scheduledAt),
     index("tube_post_status_idx").on(t.status),
+    index("tube_post_connection_idx").on(t.connectionId),
   ]
 );
 
