@@ -4,10 +4,12 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
+  AlertTriangle,
   CheckCircle2,
   Loader2,
   Link2,
   Plus,
+  RotateCw,
   Unlink,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,6 +43,8 @@ export interface ConnectionRow {
   accountHandle: string | null;
   avatarUrl: string | null;
   isActive: boolean;
+  needsReconnect: boolean;
+  accessTokenExpiresAt: string | null;
   createdAt: string;
 }
 
@@ -82,6 +86,26 @@ export function ConnectionsGrid({
       window.location.href = url;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not connect");
+      setPending(null);
+    }
+  }
+
+  async function reconnect(conn: ConnectionRow) {
+    setPending(`reconnect:${conn.id}`);
+    try {
+      const res = await fetch(`/api/oauth/${conn.platform}/initiate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ brandId: conn.brandId }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || "Could not start reconnect");
+      }
+      const { url } = await res.json();
+      window.location.href = url;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not reconnect");
       setPending(null);
     }
   }
@@ -219,8 +243,16 @@ export function ConnectionsGrid({
                       </AvatarFallback>
                     </Avatar>
                     <div className="text-xs min-w-0 flex-1">
-                      <div className="text-foreground truncate">
-                        {conn.accountName}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-foreground truncate">
+                          {conn.accountName}
+                        </span>
+                        {conn.needsReconnect ? (
+                          <Badge variant="warning" className="gap-1 shrink-0">
+                            <AlertTriangle className="size-3" />
+                            Needs reconnect
+                          </Badge>
+                        ) : null}
                       </div>
                       <div className="text-subtle-foreground truncate flex items-center gap-1.5">
                         {conn.brandId && brandsById[conn.brandId] ? (
@@ -238,6 +270,23 @@ export function ConnectionsGrid({
                         )}
                       </div>
                     </div>
+                    {conn.needsReconnect ? (
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        onClick={() => reconnect(conn)}
+                        disabled={pending === `reconnect:${conn.id}`}
+                        className="gap-1.5 shrink-0"
+                        title="Reconnect this account"
+                      >
+                        {pending === `reconnect:${conn.id}` ? (
+                          <Loader2 className="size-3 animate-spin" />
+                        ) : (
+                          <RotateCw className="size-3" />
+                        )}
+                        Reconnect
+                      </Button>
+                    ) : null}
                     {brands.length > 1 ? (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>

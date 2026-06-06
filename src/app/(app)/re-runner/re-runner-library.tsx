@@ -78,8 +78,9 @@ export async function ReRunnerLibrary() {
         </div>
         <h3 className="mt-3 text-sm font-semibold">No videos in your library yet</h3>
         <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">
-          Post a video through Road Runner and it shows up here, ready to
-          re-run any time.
+          Once you publish a video through Road Runner, the file lives here so
+          you can re-run it to any app with a single tap — no manual download
+          needed.
         </p>
         <Button asChild variant="brand" size="sm" className="mt-4 gap-1.5">
           <Link href="/compose">

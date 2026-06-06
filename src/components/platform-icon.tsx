@@ -40,7 +40,7 @@ export function PlatformIcon({
       return (
         <svg {...props}>
           <rect x="2" y="5" width="20" height="14" rx="4" fill={fill} />
-          <path d="M10 9.5v5l4.5-2.5L10 9.5z" fill="#0a0a0b" />
+          <path d="M10 9.5v5l4.5-2.5L10 9.5z" fill="#fff" />
         </svg>
       );
     case "instagram":

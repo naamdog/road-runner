@@ -37,6 +37,8 @@ export default async function ConnectionsPage() {
         accountHandle: connection.accountHandle,
         avatarUrl: connection.avatarUrl,
         isActive: connection.isActive,
+        needsReconnect: connection.needsReconnect,
+        accessTokenExpiresAt: connection.accessTokenExpiresAt,
         createdAt: connection.createdAt,
       })
       .from(connection)
@@ -44,6 +46,9 @@ export default async function ConnectionsPage() {
       .then((rows) =>
         rows.map((r) => ({
           ...r,
+          accessTokenExpiresAt: r.accessTokenExpiresAt
+            ? r.accessTokenExpiresAt.toISOString()
+            : null,
           createdAt: r.createdAt.toISOString(),
         }))
       );
