@@ -1,7 +1,8 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 
-const secret = () =>
-  process.env.BETTER_AUTH_SECRET || "dev-secret-change-me-32-bytes-min";
+import { getConfig } from "./config";
+
+const secret = () => getConfig().betterAuthSecret;
 
 /**
  * Sign a short-lived OAuth state payload to bind it to the user.
@@ -45,8 +46,5 @@ export function verifyState(state: string): {
 }
 
 export function codeChallenge(verifier: string): string {
-  return require("node:crypto")
-    .createHash("sha256")
-    .update(verifier)
-    .digest("base64url");
+  return createHash("sha256").update(verifier).digest("base64url");
 }

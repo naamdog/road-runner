@@ -3,10 +3,12 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { db } from "./db";
 import { user, session, account, verification } from "./db/schema";
+import { getConfig } from "./config";
+import { sendPasswordResetEmail, sendVerificationEmail } from "./email";
 
 export const auth = betterAuth({
   appName: "Road Runner",
-  secret: process.env.BETTER_AUTH_SECRET || "dev-secret-change-me-32-bytes-min",
+  secret: getConfig().betterAuthSecret,
   baseURL: process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
   trustedOrigins: [
     process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
@@ -20,7 +22,15 @@ export const auth = betterAuth({
     autoSignIn: true,
     minPasswordLength: 8,
     maxPasswordLength: 128,
-    requireEmailVerification: false,
+    requireEmailVerification: getConfig().requireEmailVerification,
+    sendResetPassword: async ({ user, url }) => {
+      await sendPasswordResetEmail({ to: user.email, url });
+    },
+  },
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendVerificationEmail({ to: user.email, url });
+    },
   },
   session: {
     expiresIn: 60 * 60 * 24 * 30, // 30 days

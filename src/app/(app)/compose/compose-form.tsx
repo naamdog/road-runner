@@ -19,6 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { upload } from "@vercel/blob/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -70,6 +71,8 @@ interface Schedule {
 
 type CaptionMode = "single" | "per-target";
 
+const VIDEO_MAX = 5 * 1024 * 1024 * 1024; // 5 GB
+
 export function ComposeForm({
   connections,
   activeBrand,
@@ -102,6 +105,7 @@ export function ComposeForm({
   const [uploadedContentType, setUploadedContentType] = useState<string | null>(
     prefillMedia?.contentType ?? null
   );
+  const [uploadedPathname, setUploadedPathname] = useState<string | null>(null);
   const [existingMediaId, setExistingMediaId] = useState<string | null>(
     prefillMedia?.mediaId ?? null
   );
@@ -158,8 +162,8 @@ export function ComposeForm({
       toast.error("Pick a video file (mp4, mov, or webm).");
       return;
     }
-    if (f.size > 1024 * 1024 * 1024) {
-      toast.error("That file is over 1 GB. Try a smaller one.");
+    if (f.size > VIDEO_MAX) {
+      toast.error("That file is over 5 GB. Try a smaller one.");
       return;
     }
     setFile(f);
@@ -167,6 +171,7 @@ export function ComposeForm({
     setUploadedUrl(null);
     setUploadedSize(null);
     setUploadedContentType(null);
+    setUploadedPathname(null);
     setExistingMediaId(null);
     setPulledBannerVisible(false);
     void uploadFile(f);
@@ -176,43 +181,23 @@ export function ComposeForm({
     setUploading(true);
     setUploadProgress(0);
     try {
-      const fd = new FormData();
-      fd.append("file", f);
-      const xhr = new XMLHttpRequest();
-      const promise = new Promise<{
-        url: string;
-        size: number;
-        contentType: string;
-      }>((resolve, reject) => {
-        xhr.open("POST", "/api/upload");
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            setUploadProgress(Math.round((e.loaded / e.total) * 100));
-          }
-        };
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              resolve(JSON.parse(xhr.responseText));
-            } catch {
-              reject(new Error("Bad response"));
-            }
-          } else {
-            try {
-              const j = JSON.parse(xhr.responseText);
-              reject(new Error(j.error || `Upload failed (${xhr.status})`));
-            } catch {
-              reject(new Error(`Upload failed (${xhr.status})`));
-            }
-          }
-        };
-        xhr.onerror = () => reject(new Error("Upload failed"));
-        xhr.send(fd);
+      // Upload DIRECTLY to Vercel Blob from the browser. /api/upload only mints
+      // a scoped token (and never sees the file body), so large videos bypass
+      // the serverless function's 60s limit.
+      const ext = (f.name.split(".").pop() || "mp4").toLowerCase().slice(0, 5);
+      const path = `videos/me/${Date.now()}-${randomId()}.${ext}`;
+      const blob = await upload(path, f, {
+        access: "public",
+        handleUploadUrl: "/api/upload",
+        contentType: f.type,
+        multipart: true,
+        clientPayload: JSON.stringify({ kind: "video" }),
+        onUploadProgress: (p) => setUploadProgress(Math.round(p.percentage)),
       });
-      const { url, size, contentType } = await promise;
-      setUploadedUrl(url);
-      setUploadedSize(size);
-      setUploadedContentType(contentType);
+      setUploadedUrl(blob.url);
+      setUploadedPathname(blob.pathname);
+      setUploadedSize(f.size);
+      setUploadedContentType(f.type);
       toast.success("Video uploaded.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Upload failed.");
@@ -366,6 +351,7 @@ export function ComposeForm({
       } else {
         body.media = {
           url: uploadedUrl,
+          pathname: uploadedPathname,
           filename: filename || "video.mp4",
           contentType: uploadedContentType || "video/mp4",
           sizeBytes: uploadedSize || file?.size || 0,
@@ -397,6 +383,7 @@ export function ComposeForm({
   function reset() {
     setFile(null);
     setUploadedUrl(null);
+    setUploadedPathname(null);
     setPreviewUrl(null);
     setDuration(null);
     setSingleCaption("");
@@ -941,6 +928,10 @@ export function ComposeForm({
 }
 
 // --- helpers ---
+
+function randomId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
 
 function defaultSchedules(
   connections: ComposeConnection[],

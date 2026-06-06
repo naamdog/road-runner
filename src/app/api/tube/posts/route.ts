@@ -10,6 +10,8 @@ import { getOrCreateBrands } from "@/lib/brands";
 
 const mediaSchema = z.object({
   url: z.string().url(),
+  /** Real blob pathname (preferred for blobPath). Falls back to a url split if absent. */
+  pathname: z.string().optional(),
   filename: z.string(),
   contentType: z.string(),
   sizeBytes: z.number().nonnegative(),
@@ -85,8 +87,8 @@ export async function POST(req: NextRequest) {
       null;
   }
 
-  // Resolve media
-  let mediaId: string;
+  // Validate existing media (read) up front so we can fail with a clear status
+  // before opening a transaction.
   if (parsed.existingMediaId) {
     const [m] = await db
       .select({ id: media.id })
@@ -97,20 +99,7 @@ export async function POST(req: NextRequest) {
     if (!m) {
       return NextResponse.json({ error: "Video not found" }, { status: 404 });
     }
-    mediaId = m.id;
-  } else if (parsed.media) {
-    mediaId = nanoid();
-    await db.insert(media).values({
-      id: mediaId,
-      userId,
-      blobUrl: parsed.media.url,
-      blobPath: parsed.media.url.split("/").slice(-2).join("/"),
-      filename: parsed.media.filename,
-      contentType: parsed.media.contentType,
-      sizeBytes: parsed.media.sizeBytes,
-      durationMs: parsed.media.durationMs ?? null,
-    });
-  } else {
+  } else if (!parsed.media) {
     return NextResponse.json({ error: "Missing video" }, { status: 400 });
   }
 
@@ -123,22 +112,51 @@ export async function POST(req: NextRequest) {
   }
 
   const id = nanoid();
-  await db.insert(tubePost).values({
-    id,
-    userId,
-    brandId,
-    connectionId: parsed.connectionId,
-    mediaId,
-    thumbnailUrl: parsed.thumbnailUrl ?? null,
-    title: parsed.title,
-    description: parsed.description,
-    tags: parsed.tags,
-    categoryId: parsed.categoryId,
-    visibility: parsed.visibility,
-    madeForKids: parsed.madeForKids,
-    playlistId: parsed.playlistId ?? null,
-    scheduledAt,
-    status: "scheduled",
+  const newMedia = parsed.media;
+
+  // Prefer the real blob pathname; fall back to the legacy url split.
+  const blobPath = newMedia
+    ? newMedia.pathname ?? newMedia.url.split("/").slice(-2).join("/")
+    : null;
+
+  // Wrap media + tube_post inserts in one transaction so a partial failure
+  // can't leave orphaned media or a tube_post without its media.
+  await db.transaction(async (tx) => {
+    let mediaId: string;
+    if (parsed.existingMediaId) {
+      mediaId = parsed.existingMediaId;
+    } else {
+      // newMedia is guaranteed present here (validated above).
+      mediaId = nanoid();
+      await tx.insert(media).values({
+        id: mediaId,
+        userId,
+        blobUrl: newMedia!.url,
+        blobPath: blobPath!,
+        filename: newMedia!.filename,
+        contentType: newMedia!.contentType,
+        sizeBytes: newMedia!.sizeBytes,
+        durationMs: newMedia!.durationMs ?? null,
+      });
+    }
+
+    await tx.insert(tubePost).values({
+      id,
+      userId,
+      brandId,
+      connectionId: parsed.connectionId,
+      mediaId,
+      thumbnailUrl: parsed.thumbnailUrl ?? null,
+      title: parsed.title,
+      description: parsed.description,
+      tags: parsed.tags,
+      categoryId: parsed.categoryId,
+      visibility: parsed.visibility,
+      madeForKids: parsed.madeForKids,
+      playlistId: parsed.playlistId ?? null,
+      scheduledAt,
+      status: "scheduled",
+    });
   });
 
   return NextResponse.json({ id });

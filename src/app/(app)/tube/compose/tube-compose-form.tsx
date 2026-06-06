@@ -24,6 +24,7 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { upload } from "@vercel/blob/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -66,6 +67,8 @@ interface PlaylistOption {
 }
 
 const TAG_TOTAL_LIMIT = 500;
+const VIDEO_MAX = 5 * 1024 * 1024 * 1024; // 5 GB
+const IMAGE_MAX = 4 * 1024 * 1024; // 4 MB
 
 export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
   const router = useRouter();
@@ -78,6 +81,7 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
+  const [uploadedPathname, setUploadedPathname] = useState<string | null>(null);
   const [uploadedSize, setUploadedSize] = useState<number | null>(null);
   const [uploadedCt, setUploadedCt] = useState<string | null>(null);
   const [filename, setFilename] = useState<string | null>(null);
@@ -290,13 +294,14 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
       toast.error("Pick a video file (mp4, mov, or webm).");
       return;
     }
-    if (f.size > 5 * 1024 * 1024 * 1024) {
+    if (f.size > VIDEO_MAX) {
       toast.error("That file is over 5 GB. Try a smaller file.");
       return;
     }
     setFile(f);
     setFilename(f.name);
     setUploadedUrl(null);
+    setUploadedPathname(null);
     setUploadedSize(null);
     setUploadedCt(null);
     void uploadFile(f, false);
@@ -307,7 +312,7 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
       toast.error("Pick an image (jpg, png, or webp).");
       return;
     }
-    if (f.size > 4 * 1024 * 1024) {
+    if (f.size > IMAGE_MAX) {
       toast.error("Thumbnails must be under 4 MB.");
       return;
     }
@@ -323,44 +328,33 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
       setUploadProgress(0);
     }
     try {
-      const fd = new FormData();
-      fd.append("file", f);
-      const xhr = new XMLHttpRequest();
-      const promise = new Promise<{ url: string; size: number; contentType: string }>(
-        (resolve, reject) => {
-          xhr.open("POST", isThumb ? "/api/upload?kind=image" : "/api/upload");
-          xhr.upload.onprogress = (e) => {
-            if (!isThumb && e.lengthComputable) {
-              setUploadProgress(Math.round((e.loaded / e.total) * 100));
-            }
-          };
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              try {
-                resolve(JSON.parse(xhr.responseText));
-              } catch {
-                reject(new Error("Bad response"));
-              }
-            } else {
-              try {
-                const j = JSON.parse(xhr.responseText);
-                reject(new Error(j.error || `Upload failed (${xhr.status})`));
-              } catch {
-                reject(new Error(`Upload failed (${xhr.status})`));
-              }
-            }
-          };
-          xhr.onerror = () => reject(new Error("Upload failed"));
-          xhr.send(fd);
-        }
-      );
-      const { url, size, contentType } = await promise;
+      // Upload DIRECTLY to Vercel Blob from the browser. /api/upload only mints
+      // a scoped token (and never sees the file body), so large videos bypass
+      // the serverless function's 60s limit.
+      const ext = (
+        f.name.split(".").pop() || (isThumb ? "jpg" : "mp4")
+      )
+        .toLowerCase()
+        .slice(0, 5);
+      const folder = isThumb ? "thumbnails" : "videos";
+      const path = `${folder}/me/${Date.now()}-${randomId()}.${ext}`;
+      const blob = await upload(path, f, {
+        access: "public",
+        handleUploadUrl: "/api/upload",
+        contentType: f.type,
+        multipart: true,
+        clientPayload: JSON.stringify({ kind: isThumb ? "image" : "video" }),
+        onUploadProgress: isThumb
+          ? undefined
+          : (p) => setUploadProgress(Math.round(p.percentage)),
+      });
       if (isThumb) {
-        setThumbUrl(url);
+        setThumbUrl(blob.url);
       } else {
-        setUploadedUrl(url);
-        setUploadedSize(size);
-        setUploadedCt(contentType);
+        setUploadedUrl(blob.url);
+        setUploadedPathname(blob.pathname);
+        setUploadedSize(f.size);
+        setUploadedCt(f.type);
       }
       toast.success(isThumb ? "Thumbnail uploaded." : "Video uploaded.");
     } catch (err) {
@@ -421,6 +415,7 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
           playlistId: playlistId || null,
           media: {
             url: uploadedUrl,
+            pathname: uploadedPathname,
             filename: filename || "video.mp4",
             contentType: uploadedCt || "video/mp4",
             sizeBytes: uploadedSize || file?.size || 0,
@@ -445,6 +440,7 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
   function reset() {
     setFile(null);
     setUploadedUrl(null);
+    setUploadedPathname(null);
     setPreviewUrl(null);
     setDuration(null);
     setFilename(null);
@@ -670,6 +666,7 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
                   setFile(null);
                   setPreviewUrl(null);
                   setUploadedUrl(null);
+                  setUploadedPathname(null);
                 }}
                 className="ml-auto inline-flex items-center gap-1 text-destructive hover:text-destructive"
               >
@@ -1041,6 +1038,10 @@ function VisibilityOption({
 }
 
 // --- helpers ---
+
+function randomId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
 
 function detectChapters(description: string): number {
   // Lines like "00:00 Intro" or "01:23:45 Whatever" — YouTube auto-detects

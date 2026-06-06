@@ -19,6 +19,8 @@ const targetSchema = z.object({
 
 const mediaSchema = z.object({
   url: z.string().url(),
+  /** Real blob pathname (preferred for blobPath). Falls back to a url split if absent. */
+  pathname: z.string().optional(),
   filename: z.string(),
   contentType: z.string(),
   sizeBytes: z.number().nonnegative(),
@@ -34,6 +36,7 @@ const bodySchema = z
     media: mediaSchema.optional(),
     existingMediaId: z.string().optional(),
     brandId: z.string().optional(),
+    idempotencyKey: z.string().max(200).optional(),
     targets: z.array(targetSchema).min(1).max(50),
   })
   .refine((b) => Boolean(b.media || b.existingMediaId), {
@@ -57,6 +60,31 @@ export async function POST(req: NextRequest) {
   }
 
   const userId = session.user.id;
+
+  // Idempotency: if a key was provided and we've already created a post for it,
+  // return the existing post (with its target count) without inserting again.
+  if (parsed.idempotencyKey) {
+    const [existing] = await db
+      .select({ id: post.id })
+      .from(post)
+      .where(
+        and(
+          eq(post.userId, userId),
+          eq(post.idempotencyKey, parsed.idempotencyKey)
+        )
+      );
+    if (existing) {
+      const existingTargets = await db
+        .select({ id: postTarget.id })
+        .from(postTarget)
+        .where(eq(postTarget.postId, existing.id));
+      return NextResponse.json({
+        id: existing.id,
+        targets: existingTargets.length,
+        deduped: true,
+      });
+    }
+  }
 
   // Resolve brand: explicit body, then cookie, then default
   const brands = await getOrCreateBrands(userId);
@@ -92,7 +120,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  let mediaId: string;
+  // Validate existing media (read) up front so we can fail with a clear status
+  // before opening a transaction.
   if (parsed.existingMediaId) {
     const [m] = await db
       .select({ id: media.id })
@@ -103,34 +132,17 @@ export async function POST(req: NextRequest) {
     if (!m) {
       return NextResponse.json({ error: "Video not found" }, { status: 404 });
     }
-    mediaId = m.id;
-  } else if (parsed.media) {
-    mediaId = nanoid();
-    await db.insert(media).values({
-      id: mediaId,
-      userId,
-      blobUrl: parsed.media.url,
-      blobPath: parsed.media.url.split("/").slice(-2).join("/"),
-      filename: parsed.media.filename,
-      contentType: parsed.media.contentType,
-      sizeBytes: parsed.media.sizeBytes,
-      durationMs: parsed.media.durationMs ?? null,
-      width: parsed.media.width ?? null,
-      height: parsed.media.height ?? null,
-    });
-  } else {
+  } else if (!parsed.media) {
     return NextResponse.json({ error: "Missing video" }, { status: 400 });
   }
 
   const postId = nanoid();
-  await db.insert(post).values({
-    id: postId,
-    userId,
-    brandId,
-    mediaId,
-    caption: parsed.caption,
-    title: parsed.title ?? null,
-  });
+  const newMedia = parsed.media;
+
+  // Prefer the real blob pathname; fall back to the legacy url split.
+  const blobPath = newMedia
+    ? newMedia.pathname ?? newMedia.url.split("/").slice(-2).join("/")
+    : null;
 
   const targets = parsed.targets.map((t) => ({
     id: nanoid(),
@@ -143,9 +155,43 @@ export async function POST(req: NextRequest) {
     status: t.connectionId ? ("scheduled" as const) : ("draft" as const),
   }));
 
-  if (targets.length > 0) {
-    await db.insert(postTarget).values(targets);
-  }
+  // Wrap media + post + targets in one transaction so a partial failure
+  // can't leave orphaned media or a post without its targets.
+  await db.transaction(async (tx) => {
+    let mediaId: string;
+    if (parsed.existingMediaId) {
+      mediaId = parsed.existingMediaId;
+    } else {
+      // newMedia is guaranteed present here (validated above).
+      mediaId = nanoid();
+      await tx.insert(media).values({
+        id: mediaId,
+        userId,
+        blobUrl: newMedia!.url,
+        blobPath: blobPath!,
+        filename: newMedia!.filename,
+        contentType: newMedia!.contentType,
+        sizeBytes: newMedia!.sizeBytes,
+        durationMs: newMedia!.durationMs ?? null,
+        width: newMedia!.width ?? null,
+        height: newMedia!.height ?? null,
+      });
+    }
+
+    await tx.insert(post).values({
+      id: postId,
+      userId,
+      brandId,
+      mediaId,
+      caption: parsed.caption,
+      title: parsed.title ?? null,
+      idempotencyKey: parsed.idempotencyKey ?? null,
+    });
+
+    if (targets.length > 0) {
+      await tx.insert(postTarget).values(targets);
+    }
+  });
 
   return NextResponse.json({ id: postId, targets: targets.length });
 }

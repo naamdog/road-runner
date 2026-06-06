@@ -15,9 +15,9 @@ function getClient() {
     return null;
   }
   if (process.env.NODE_ENV === "production") {
-    return postgres(url, { prepare: false, max: 1 });
+    return postgres(url, { prepare: false, max: 10 });
   }
-  globalThis.__pg__ ??= postgres(url, { prepare: false, max: 1 });
+  globalThis.__pg__ ??= postgres(url, { prepare: false, max: 10 });
   return globalThis.__pg__;
 }
 

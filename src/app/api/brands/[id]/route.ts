@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { brand, connection, post } from "@/lib/db/schema";
+import { brand, connection, post, tubePost } from "@/lib/db/schema";
 import { getSession } from "@/lib/session";
 
 const patchSchema = z.object({
@@ -66,40 +66,74 @@ export async function DELETE(
   }
   const { id } = await params;
 
+  const userId = session.user.id;
+
+  // Order by sortOrder/createdAt so the "first remaining brand" fallback is
+  // deterministic and matches getOrCreateBrands' ordering.
   const allBrands = await db
     .select({ id: brand.id, isDefault: brand.isDefault })
     .from(brand)
-    .where(eq(brand.userId, session.user.id));
+    .where(eq(brand.userId, userId))
+    .orderBy(brand.sortOrder, brand.createdAt);
 
+  // Never delete the last remaining brand — the user must always have one.
   if (allBrands.length <= 1) {
     return NextResponse.json(
       { error: "You need at least one brand. Make another first." },
       { status: 400 }
     );
   }
+
+  // Never allow deleting a brand you don't own (or that doesn't exist).
   const target = allBrands.find((b) => b.id === id);
   if (!target) {
     return NextResponse.json({ error: "Brand not found" }, { status: 404 });
   }
 
-  await db
-    .delete(brand)
-    .where(and(eq(brand.id, id), eq(brand.userId, session.user.id)));
+  // Pick where orphaned content goes: prefer the user's default brand, else the
+  // first remaining brand by sort order. Never the brand being deleted.
+  const others = allBrands.filter((b) => b.id !== id);
+  const fallback = others.find((b) => b.isDefault) ?? others[0];
+  const fallbackId = fallback.id;
 
-  // If we deleted the default, promote another brand
-  if (target.isDefault) {
-    const [next] = await db
-      .select({ id: brand.id })
-      .from(brand)
-      .where(eq(brand.userId, session.user.id))
-      .limit(1);
-    if (next) {
-      await db
+  const now = new Date();
+
+  // Do the reassign + delete atomically so connected accounts and scheduled
+  // content are never lost. Without this, the FKs would CASCADE-delete the
+  // brand's connections and NULL-orphan its posts/tube_posts.
+  await db.transaction(async (tx) => {
+    // Reassign connected accounts so they survive the delete.
+    await tx
+      .update(connection)
+      .set({ brandId: fallbackId, updatedAt: now })
+      .where(and(eq(connection.userId, userId), eq(connection.brandId, id)));
+
+    // Reassign scheduled / drafted multi-platform posts.
+    await tx
+      .update(post)
+      .set({ brandId: fallbackId, updatedAt: now })
+      .where(and(eq(post.userId, userId), eq(post.brandId, id)));
+
+    // Reassign scheduled / drafted long-form (TubeRunner) posts.
+    await tx
+      .update(tubePost)
+      .set({ brandId: fallbackId, updatedAt: now })
+      .where(and(eq(tubePost.userId, userId), eq(tubePost.brandId, id)));
+
+    // Now safe to delete the (re-parented) brand.
+    await tx
+      .delete(brand)
+      .where(and(eq(brand.id, id), eq(brand.userId, userId)));
+
+    // If the deleted brand was the default, promote the fallback so the user
+    // always has exactly one default brand.
+    if (target.isDefault) {
+      await tx
         .update(brand)
-        .set({ isDefault: true, updatedAt: new Date() })
-        .where(eq(brand.id, next.id));
+        .set({ isDefault: true, updatedAt: now })
+        .where(and(eq(brand.id, fallbackId), eq(brand.userId, userId)));
     }
-  }
+  });
 
   return NextResponse.json({ ok: true });
 }
