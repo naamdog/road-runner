@@ -29,6 +29,7 @@ async function main(): Promise<void> {
       id: connection.id,
       accessToken: connection.accessToken,
       refreshToken: connection.refreshToken,
+      metadata: connection.metadata,
     })
     .from(connection);
 
@@ -36,11 +37,32 @@ async function main(): Promise<void> {
   let accessTokensEncrypted = 0;
   let refreshTokensEncrypted = 0;
   let skippedAlreadyEncrypted = 0;
+  let metadataStripped = 0;
 
   for (const row of rows) {
     scanned++;
 
-    const update: { accessToken?: string; refreshToken?: string } = {};
+    const update: {
+      accessToken?: string;
+      refreshToken?: string;
+      metadata?: Record<string, unknown>;
+    } = {};
+
+    // Purge any legacy plaintext Page token stored in metadata.pageAccessToken
+    // (the real token now lives encrypted in the accessToken column).
+    if (
+      row.metadata &&
+      typeof row.metadata === "object" &&
+      "pageAccessToken" in (row.metadata as Record<string, unknown>)
+    ) {
+      const { pageAccessToken: _drop, ...rest } = row.metadata as Record<
+        string,
+        unknown
+      >;
+      void _drop;
+      update.metadata = rest;
+      metadataStripped++;
+    }
 
     if (row.accessToken !== null) {
       if (isEncrypted(row.accessToken)) {
@@ -70,6 +92,7 @@ async function main(): Promise<void> {
   console.log(`  rows scanned:                ${scanned}`);
   console.log(`  access tokens encrypted:     ${accessTokensEncrypted}`);
   console.log(`  refresh tokens encrypted:    ${refreshTokensEncrypted}`);
+  console.log(`  metadata pageAccessToken removed: ${metadataStripped}`);
   console.log(`  skipped (already encrypted): ${skippedAlreadyEncrypted}`);
 }
 

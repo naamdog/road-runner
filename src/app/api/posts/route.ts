@@ -157,41 +157,68 @@ export async function POST(req: NextRequest) {
 
   // Wrap media + post + targets in one transaction so a partial failure
   // can't leave orphaned media or a post without its targets.
-  await db.transaction(async (tx) => {
-    let mediaId: string;
-    if (parsed.existingMediaId) {
-      mediaId = parsed.existingMediaId;
-    } else {
-      // newMedia is guaranteed present here (validated above).
-      mediaId = nanoid();
-      await tx.insert(media).values({
-        id: mediaId,
+  try {
+    await db.transaction(async (tx) => {
+      let mediaId: string;
+      if (parsed.existingMediaId) {
+        mediaId = parsed.existingMediaId;
+      } else {
+        // newMedia is guaranteed present here (validated above).
+        mediaId = nanoid();
+        await tx.insert(media).values({
+          id: mediaId,
+          userId,
+          blobUrl: newMedia!.url,
+          blobPath: blobPath!,
+          filename: newMedia!.filename,
+          contentType: newMedia!.contentType,
+          sizeBytes: newMedia!.sizeBytes,
+          durationMs: newMedia!.durationMs ?? null,
+          width: newMedia!.width ?? null,
+          height: newMedia!.height ?? null,
+        });
+      }
+
+      await tx.insert(post).values({
+        id: postId,
         userId,
-        blobUrl: newMedia!.url,
-        blobPath: blobPath!,
-        filename: newMedia!.filename,
-        contentType: newMedia!.contentType,
-        sizeBytes: newMedia!.sizeBytes,
-        durationMs: newMedia!.durationMs ?? null,
-        width: newMedia!.width ?? null,
-        height: newMedia!.height ?? null,
+        brandId,
+        mediaId,
+        caption: parsed.caption,
+        title: parsed.title ?? null,
+        idempotencyKey: parsed.idempotencyKey ?? null,
       });
-    }
 
-    await tx.insert(post).values({
-      id: postId,
-      userId,
-      brandId,
-      mediaId,
-      caption: parsed.caption,
-      title: parsed.title ?? null,
-      idempotencyKey: parsed.idempotencyKey ?? null,
+      if (targets.length > 0) {
+        await tx.insert(postTarget).values(targets);
+      }
     });
-
-    if (targets.length > 0) {
-      await tx.insert(postTarget).values(targets);
+  } catch (err) {
+    // Idempotency TOCTOU: a concurrent request with the same key won the race
+    // and the partial-unique index rejected this insert (Postgres 23505).
+    // Return the existing post instead of a 500 — the whole point of the key.
+    const code = (err as { code?: string } | null)?.code;
+    if (parsed.idempotencyKey && code === "23505") {
+      const [existing] = await db
+        .select({ id: post.id })
+        .from(post)
+        .where(
+          and(eq(post.userId, userId), eq(post.idempotencyKey, parsed.idempotencyKey))
+        );
+      if (existing) {
+        const existingTargets = await db
+          .select({ id: postTarget.id })
+          .from(postTarget)
+          .where(eq(postTarget.postId, existing.id));
+        return NextResponse.json({
+          id: existing.id,
+          targets: existingTargets.length,
+          deduped: true,
+        });
+      }
     }
-  });
+    throw err;
+  }
 
   return NextResponse.json({ id: postId, targets: targets.length });
 }

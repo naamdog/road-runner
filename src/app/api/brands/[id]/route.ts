@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { brand, connection, post, tubePost } from "@/lib/db/schema";
 import { getSession } from "@/lib/session";
@@ -31,24 +31,39 @@ export async function PATCH(
     );
   }
 
-  if (parsed.isDefault === true) {
-    // Demote any other default first
-    await db
-      .update(brand)
-      .set({ isDefault: false, updatedAt: new Date() })
-      .where(eq(brand.userId, session.user.id));
-  }
+  const userId = session.user.id;
+  const now = new Date();
 
-  const [updated] = await db
-    .update(brand)
-    .set({
-      ...(parsed.name !== undefined ? { name: parsed.name } : {}),
-      ...(parsed.color !== undefined ? { color: parsed.color } : {}),
-      ...(parsed.isDefault !== undefined ? { isDefault: parsed.isDefault } : {}),
-      updatedAt: new Date(),
-    })
-    .where(and(eq(brand.id, id), eq(brand.userId, session.user.id)))
-    .returning();
+  // Atomic: verify ownership BEFORE demoting anything (a bad/non-owned id must
+  // never wipe the user's existing default), and demote others BEFORE promoting
+  // this one so the "one default per user" unique index is never transiently
+  // violated within the transaction.
+  const updated = await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ id: brand.id })
+      .from(brand)
+      .where(and(eq(brand.id, id), eq(brand.userId, userId)));
+    if (!existing) return null;
+
+    if (parsed.isDefault === true) {
+      await tx
+        .update(brand)
+        .set({ isDefault: false, updatedAt: now })
+        .where(and(eq(brand.userId, userId), ne(brand.id, id)));
+    }
+
+    const [row] = await tx
+      .update(brand)
+      .set({
+        ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+        ...(parsed.color !== undefined ? { color: parsed.color } : {}),
+        ...(parsed.isDefault !== undefined ? { isDefault: parsed.isDefault } : {}),
+        updatedAt: now,
+      })
+      .where(and(eq(brand.id, id), eq(brand.userId, userId)))
+      .returning();
+    return row ?? null;
+  });
 
   if (!updated) {
     return NextResponse.json({ error: "Brand not found" }, { status: 404 });

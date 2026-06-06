@@ -7,27 +7,75 @@ import { publishYouTubeLongform } from "@/lib/publishers/youtube-longform";
 import { ensureFreshAccessToken } from "@/lib/token-refresh";
 import { decryptSecret } from "@/lib/crypto";
 import { createLogger } from "@/lib/logger";
+import {
+  nextAttemptAt,
+  SHORT_BASE_MS,
+  SHORT_CAP_MS,
+  TUBE_BASE_MS,
+  TUBE_CAP_MS,
+} from "@/lib/backoff";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 min per cron invocation
 
 const MAX_ATTEMPTS = 3;
 const BATCH_SIZE = 10;
-
-// Backoff: capped exponential with ±30% jitter to avoid a thundering herd when
-// many targets fail at the same instant. Short-form and TubeRunner keep their
-// distinct caps (15 min vs 30 min) for parity with historical behavior.
-const SHORT_BASE_MS = 60 * 1000;
-const SHORT_CAP_MS = 15 * 60 * 1000;
-const TUBE_BASE_MS = 2 * 60 * 1000;
-const TUBE_CAP_MS = 30 * 60 * 1000;
+// A row claimed (status='publishing') but never finalized within this window is
+// considered orphaned (the run was killed/timed out after claim) and reset to
+// 'scheduled' so a later run retries it. Must exceed maxDuration + the longest
+// upload timeout so we never reap a row that is still legitimately uploading.
+const STALE_PUBLISHING_MS = 15 * 60 * 1000;
 
 const log = createLogger({ scope: "cron" });
 
-function nextAttemptAt(baseMs: number, capMs: number, attempts: number): Date {
-  const raw = Math.min(capMs, Math.pow(2, attempts) * baseMs);
-  const jitter = raw * 0.3 * (Math.random() * 2 - 1); // ±30%
-  return new Date(Date.now() + Math.max(1000, Math.round(raw + jitter)));
+/** Retry a DB write a few times to ride out transient pool/connection blips. */
+async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Reset rows orphaned in 'publishing' (claimed but never finalized — e.g. the
+ * serverless function hit maxDuration or crashed mid-batch). `attempts` was
+ * already incremented at claim time, so MAX_ATTEMPTS is still respected.
+ *
+ * NOTE: this makes delivery at-least-once. If a publish actually succeeded on
+ * the platform but the status write never landed, a reaped row could publish
+ * again. The finalize path below retries its status write specifically to keep
+ * that window vanishingly small; true exactly-once would need per-platform
+ * idempotency keys (future work).
+ */
+async function reapStale(now: Date) {
+  const cutoff = new Date(now.getTime() - STALE_PUBLISHING_MS);
+  const note =
+    "Reset after being stuck in 'publishing' (the previous run was likely killed or timed out).";
+
+  const short = await db
+    .update(postTarget)
+    .set({ status: "scheduled", nextAttemptAt: now, lastError: note, updatedAt: now })
+    .where(and(eq(postTarget.status, "publishing"), lte(postTarget.lastAttemptAt, cutoff)))
+    .returning({ id: postTarget.id });
+
+  const tube = await db
+    .update(tubePost)
+    .set({ status: "scheduled", nextAttemptAt: now, lastError: note, updatedAt: now })
+    .where(and(eq(tubePost.status, "publishing"), lte(tubePost.lastAttemptAt, cutoff)))
+    .returning({ id: tubePost.id });
+
+  if (short.length || tube.length) {
+    log.warn(
+      { shortReset: short.length, tubeReset: tube.length },
+      "reaped stale 'publishing' rows"
+    );
+  }
+  return { short: short.length, tube: tube.length };
 }
 
 /**
@@ -53,11 +101,13 @@ export async function GET(req: NextRequest) {
   }
 
   const now = new Date();
+  const reaped = await reapStale(now);
   const shortResults = await processShortForm(now);
   const tubeResults = await processTubeRunner(now);
 
   log.info(
     {
+      reaped,
       short: { processed: shortResults.processed, ...shortResults.counts },
       tube: { processed: tubeResults.processed, ...tubeResults.counts },
     },
@@ -65,6 +115,7 @@ export async function GET(req: NextRequest) {
   );
 
   return NextResponse.json({
+    reaped,
     short: shortResults,
     tube: tubeResults,
     at: now.toISOString(),
@@ -198,23 +249,52 @@ async function processShortForm(now: Date) {
         accountName: conn.accountName,
       });
 
-      await db
-        .update(postTarget)
-        .set({
-          status: "published",
-          publishedUrl: result.publishedUrl,
-          publishedAt: new Date(),
-          lastError: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(postTarget.id, row.id));
-
-      counts.succeeded++;
-      results.push({ id: row.id, ok: true });
-      log.info(
-        { targetId: row.id, platform: row.platform, attempt: row.attempts + 1 },
-        "short-form publish ok"
-      );
+      // Publish SUCCEEDED on the platform. Finalize with retry — a DB blip here
+      // must NOT fall through to the reschedule path below (that would publish a
+      // duplicate). On persistent finalize failure, mark failed-with-note so the
+      // reaper won't re-publish.
+      try {
+        await withRetry(() =>
+          db
+            .update(postTarget)
+            .set({
+              status: "published",
+              publishedUrl: result.publishedUrl,
+              publishedAt: new Date(),
+              lastError: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(postTarget.id, row.id))
+        );
+        counts.succeeded++;
+        results.push({ id: row.id, ok: true });
+        log.info(
+          { targetId: row.id, platform: row.platform, attempt: row.attempts + 1 },
+          "short-form publish ok"
+        );
+      } catch (finalizeErr) {
+        const fmsg =
+          finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr);
+        log.error(
+          { targetId: row.id, platform: row.platform, publishedUrl: result.publishedUrl, err: fmsg },
+          "published on platform but failed to record status — preventing a duplicate"
+        );
+        try {
+          await db
+            .update(postTarget)
+            .set({
+              status: "failed",
+              publishedUrl: result.publishedUrl,
+              lastError: `Published on the platform, but recording it failed (no duplicate will be posted). ${fmsg}`.slice(0, 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(postTarget.id, row.id));
+        } catch {
+          // DB unavailable; the stale-publishing reaper is the last resort.
+        }
+        counts.succeeded++;
+        results.push({ id: row.id, ok: true, error: "status-write-failed" });
+      }
     } catch (err) {
       const error = err instanceof Error ? err.message : "Unknown error";
       const retryable = err instanceof PublisherError ? err.retryable : true;
@@ -376,17 +456,52 @@ async function processTubeRunner(now: Date) {
         playlistId: row.playlistId,
       });
 
-      await db
-        .update(tubePost)
-        .set({
-          status: "published",
-          publishedUrl: result.videoUrl,
-          publishedAt: new Date(),
-          youtubeVideoId: result.videoId,
-          lastError: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(tubePost.id, row.id));
+      // Publish SUCCEEDED — finalize with retry; a DB blip must not reschedule
+      // (that would re-upload a duplicate video). On persistent failure, mark
+      // failed-with-note so the reaper won't re-publish.
+      try {
+        await withRetry(() =>
+          db
+            .update(tubePost)
+            .set({
+              status: "published",
+              publishedUrl: result.videoUrl,
+              publishedAt: new Date(),
+              youtubeVideoId: result.videoId,
+              lastError: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(tubePost.id, row.id))
+        );
+      } catch (finalizeErr) {
+        const fmsg =
+          finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr);
+        log.error(
+          { tubePostId: row.id, publishedUrl: result.videoUrl, err: fmsg },
+          "uploaded to YouTube but failed to record status — preventing a duplicate"
+        );
+        try {
+          await db
+            .update(tubePost)
+            .set({
+              status: "failed",
+              publishedUrl: result.videoUrl,
+              youtubeVideoId: result.videoId,
+              lastError: `Uploaded to YouTube, but recording it failed (no duplicate will be posted). ${fmsg}`.slice(0, 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(tubePost.id, row.id));
+        } catch {
+          // DB unavailable; the stale-publishing reaper is the last resort.
+        }
+        counts.succeeded++;
+        results.push({ id: row.id, ok: true, error: "status-write-failed" });
+        log.info(
+          { tubePostId: row.id, attempt: row.attempts + 1 },
+          "tube publish ok (status write degraded)"
+        );
+        continue;
+      }
 
       counts.succeeded++;
       results.push({ id: row.id, ok: true });

@@ -70,9 +70,21 @@ export async function ensureFreshAccessToken(conn: {
       return r.accessToken;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // Transient failure (network timeout, 429, 5xx): the refresher signals
+      // this with a retryable PublisherError. Do NOT flag the connection or fail
+      // the post permanently — a healthy token-endpoint blip must be retried.
+      if (err instanceof PublisherError && err.retryable) {
+        log.warn(
+          { connectionId: conn.id, platform: conn.platform, err: message },
+          "token refresh failed (transient — will retry)"
+        );
+        throw err; // stays retryable; dispatcher reschedules within MAX_ATTEMPTS
+      }
+      // Permanent failure (invalid_grant / revoked / not configured): the user
+      // must reconnect this account.
       log.warn(
         { connectionId: conn.id, platform: conn.platform, err: message },
-        "token refresh failed"
+        "token refresh failed (permanent — needs reconnect)"
       );
       await markNeedsReconnect(conn.id, message);
       throw new PublisherError(

@@ -140,9 +140,15 @@ export async function GET(
     // For Meta, the connection's stored access token should be the Page token
     // so publishers (which use connection.accessToken) call the right APIs.
     const tokenToStore = profile.primaryToken ?? userToken;
-    const expiresAt = tokens.expires_in
-      ? new Date(Date.now() + (tokens.expires_in as number) * 1000)
-      : null;
+    // Meta (facebook/instagram) stores the PAGE token, which is non-expiring when
+    // derived from a long-lived user token. tokens.expires_in is the SHORT-LIVED
+    // *user* token's expiry — applying it here would wrongly flag the connection
+    // "needs reconnect" once it passes (there is no Meta refresher by design).
+    const isMeta = platform === "facebook" || platform === "instagram";
+    const expiresAt =
+      !isMeta && tokens.expires_in
+        ? new Date(Date.now() + (tokens.expires_in as number) * 1000)
+        : null;
     // Encrypt at rest — never store platform tokens as plaintext.
     const encAccessToken = encryptSecret(tokenToStore);
     const encRefreshToken = tokens.refresh_token
@@ -292,7 +298,9 @@ async function fetchProfiles(
           accountName: page.name || "Facebook Page",
           accountHandle: null,
           avatarUrl: page.picture?.data?.url || null,
-          metadata: { pageId: page.id, pageAccessToken: page.access_token },
+          // Page token lives ONLY in the encrypted accessToken column (primaryToken).
+          // Do not duplicate it into the unencrypted metadata JSON.
+          metadata: { pageId: page.id },
           primaryToken: page.access_token,
         }));
       }
@@ -309,10 +317,10 @@ async function fetchProfiles(
               accountName: ig.username || page.name,
               accountHandle: ig.username || null,
               avatarUrl: ig.profile_picture_url || null,
+              // Page token lives ONLY in the encrypted accessToken column.
               metadata: {
                 igUserId: ig.id,
                 pageId: page.id,
-                pageAccessToken: page.access_token,
               },
               primaryToken: page.access_token,
             };
