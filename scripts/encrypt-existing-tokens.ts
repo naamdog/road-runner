@@ -18,12 +18,16 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local" });
 loadEnv();
 
-import { eq } from "drizzle-orm";
-import { db } from "../src/lib/db";
-import { connection } from "../src/lib/db/schema";
 import { encryptSecret, isEncrypted } from "../src/lib/crypto";
 
 async function main(): Promise<void> {
+  // Import the DB lazily — AFTER the loadEnv() calls above — because
+  // src/lib/db reads DATABASE_URL at module-evaluation time and static imports
+  // are hoisted above top-level statements.
+  const { db } = await import("../src/lib/db");
+  const { connection } = await import("../src/lib/db/schema");
+  const { eq } = await import("drizzle-orm");
+
   const rows = await db
     .select({
       id: connection.id,
@@ -83,7 +87,11 @@ async function main(): Promise<void> {
     }
 
     // Only UPDATE rows that actually changed.
-    if (update.accessToken !== undefined || update.refreshToken !== undefined) {
+    if (
+      update.accessToken !== undefined ||
+      update.refreshToken !== undefined ||
+      update.metadata !== undefined
+    ) {
       await db.update(connection).set(update).where(eq(connection.id, row.id));
     }
   }

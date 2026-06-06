@@ -4,6 +4,32 @@
 
 ---
 
+## 0. Hardening Update — 2026-06-06 (personal-use build)
+
+The §9 build order was executed (scope: **everything except billing/quotas and marketing-page rebuild** — this is a personal, single-user deployment, not a public launch). **Deployed to production and verified** (build + 65 passing tests + live smoke test).
+
+**Package manager is `pnpm`, NOT npm** — `npm install` breaks on the pnpm store. Use `pnpm install` / `pnpm run <script>` everywhere. (The §2 `npm` commands below are wrong.)
+
+**What changed (done + verified):**
+- **Tokens encrypted at rest** — AES-256-GCM (`src/lib/crypto.ts`); OAuth callback encrypts on write; `connection` tokens migrated via `scripts/encrypt-existing-tokens.ts`. New env **`TOKEN_ENC_KEY`** (base64 32 bytes) is set in Vercel prod+dev — **back it up; losing it makes stored tokens unrecoverable.** Crypto has a legacy-plaintext passthrough for zero-downtime migration. Meta Page token no longer duplicated in plaintext `metadata`.
+- **Token refresh + lifecycle** — per-platform `refresh()` (YouTube/TikTok/LinkedIn) in the publishers; `src/lib/token-refresh.ts#ensureFreshAccessToken` refreshes before expiry, persists re-encrypted tokens, flags `connection.needsReconnect` on *permanent* failures only (transient blips stay retryable). Meta Page tokens are treated as non-expiring (`accessTokenExpiresAt=null`). Token-health endpoint `GET /api/connections/[id]/health`; "needs reconnect" badge in the connections UI.
+- **Dispatcher hardened** (`src/app/api/cron/dispatch/route.ts`) — claim via `SELECT … FOR UPDATE SKIP LOCKED` in a short tx (no double-claim), publish outside the lock, ±30% backoff jitter, structured logging (pino), a **reaper** that resets rows stuck in `publishing`, and a resilient finalize that won't reschedule a duplicate after a successful upload.
+- **Uploads** — direct-to-Blob client uploads via `@vercel/blob` `handleUpload` (bypasses the 60s function); size-scoped tokens; `pathname` threaded through so `blobPath` is no longer a fragile url-split.
+- **Data integrity** — `db.transaction` around media+post+targets and tube inserts; `post.idempotencyKey` with TOCTOU-safe dedupe; composite/partial unique indexes + FK indexes (migration `drizzle/0004_harden.sql`, applied); brand DELETE reassigns connections/posts to a fallback brand (no more orphans); atomic brand set-default.
+- **Auth completeness** — dev-secret fallback removed (startup env validation in `src/lib/config.ts`); Resend wired (`src/lib/email.ts`, graceful-degrade); rate limiting (`src/middleware.ts` + `src/lib/rate-limit.ts`, edge-safe in-memory).
+- **Reliability/UX** — Vitest harness (`pnpm test`, 65 tests); `fetchWithTimeout` on all publisher calls; `(app)/loading.tsx`+`error.tsx`+`global-error.tsx`; YouTube icon fix; `prefers-reduced-motion`; re-runner empty-state copy.
+
+**Remaining MANUAL items (need you, not code):**
+- **TikTok / LinkedIn** still dark — code (incl. refresh + LinkedIn URN validation) is ready; add `TIKTOK_CLIENT_KEY/SECRET` and/or `LINKEDIN_CLIENT_ID/SECRET` in Vercel to light them up. LinkedIn is realistic (~1hr, free, needs a Company Page + "Share on LinkedIn" product). TikTok keys are easy but *public* auto-posting needs TikTok's Content-Posting-API audit (private/draft only until then).
+- **Resend email** — set `RESEND_API_KEY` + `EMAIL_FROM` (verified domain) to make password-reset/verification emails actually send (until then they log + no-op, never crash).
+- **Email verification** — `REQUIRE_EMAIL_VERIFICATION` defaults `false` (so you can't lock yourself out). Set it `"true"` in Vercel *after* Resend is configured.
+- **Rate limiter** is per-instance best-effort; swap for Upstash (`@upstash/ratelimit`) if you ever go multi-user.
+- **Concurrency test** `src/lib/__tests__/dispatch-concurrency.integration.test.ts` is skipped unless `TEST_DATABASE_URL` (a disposable Postgres) is set.
+
+**Not built (intentionally, per personal-use scope):** billing/subscriptions/quotas; marketing-page rebuild (existing pages untouched).
+
+---
+
 ## 1. TL;DR
 
 **Road Runner** is a focused, multi-tenant SaaS for short-form video scheduling: upload once, fan out to five platforms (YouTube Shorts, Instagram Reels, TikTok, LinkedIn, Facebook Reels) on a per-account schedule, with a minute-precision cron dispatcher and exponential-backoff retries. It bundles two adjacent surfaces: **Re-runner** (resurface + repost your top-performing videos) and **TubeRunner** (long-form YouTube with full metadata/playlists/thumbnails).
