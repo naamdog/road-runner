@@ -1,4 +1,8 @@
 import { PublisherError } from "./types";
+import { fetchWithTimeout } from "./http";
+import { createLogger } from "../logger";
+
+const log = createLogger({ scope: "youtube-longform" });
 
 export interface LongFormInput {
   accessToken: string;
@@ -32,7 +36,7 @@ export async function publishYouTubeLongform(
   input: LongFormInput
 ): Promise<LongFormResult> {
   // 1. Pull bytes from blob
-  const sourceRes = await fetch(input.videoUrl);
+  const sourceRes = await fetchWithTimeout(input.videoUrl);
   if (!sourceRes.ok) {
     throw new PublisherError(
       `Could not fetch video from storage (${sourceRes.status})`
@@ -57,7 +61,7 @@ export async function publishYouTubeLongform(
     },
   };
 
-  const initRes = await fetch(
+  const initRes = await fetchWithTimeout(
     "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
     {
       method: "POST",
@@ -83,12 +87,16 @@ export async function publishYouTubeLongform(
     throw new PublisherError("YouTube did not return an upload URL");
   }
 
-  // 3. Upload bytes
-  const uploadRes = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body,
-  });
+  // 3. Upload bytes (large transfer — allow a generous timeout)
+  const uploadRes = await fetchWithTimeout(
+    uploadUrl,
+    {
+      method: "PUT",
+      headers: { "Content-Type": contentType },
+      body,
+    },
+    180000
+  );
   if (!uploadRes.ok) {
     const t = await uploadRes.text();
     throw new PublisherError(
@@ -106,11 +114,11 @@ export async function publishYouTubeLongform(
   // 4. Optional thumbnail upload (best-effort — channel must be verified)
   if (input.thumbnailUrl) {
     try {
-      const thumbRes = await fetch(input.thumbnailUrl);
+      const thumbRes = await fetchWithTimeout(input.thumbnailUrl);
       if (thumbRes.ok) {
         const thumbCt = thumbRes.headers.get("content-type") || "image/jpeg";
         const thumbBody = await thumbRes.arrayBuffer();
-        await fetch(
+        const setRes = await fetchWithTimeout(
           `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${videoId}`,
           {
             method: "POST",
@@ -121,9 +129,24 @@ export async function publishYouTubeLongform(
             body: thumbBody,
           }
         );
+        if (!setRes.ok) {
+          log.warn(
+            { videoId, status: setRes.status },
+            "thumbnail set failed (best-effort, video still published)"
+          );
+        }
+      } else {
+        log.warn(
+          { videoId, status: thumbRes.status },
+          "could not fetch thumbnail source (best-effort)"
+        );
       }
-    } catch {
-      // Don't fail the whole publish if thumbnail fails.
+    } catch (err) {
+      // Don't fail the whole publish if thumbnail fails — but surface it.
+      log.warn(
+        { videoId, err: err instanceof Error ? err.message : String(err) },
+        "thumbnail upload threw (best-effort, ignored)"
+      );
     }
   }
 
@@ -131,7 +154,7 @@ export async function publishYouTubeLongform(
   let addedToPlaylist = false;
   if (input.playlistId) {
     try {
-      const plRes = await fetch(
+      const plRes = await fetchWithTimeout(
         "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet",
         {
           method: "POST",
@@ -151,8 +174,22 @@ export async function publishYouTubeLongform(
         }
       );
       addedToPlaylist = plRes.ok;
-    } catch {
-      // ignore — video is published regardless
+      if (!plRes.ok) {
+        log.warn(
+          { videoId, playlistId: input.playlistId, status: plRes.status },
+          "playlist add failed (best-effort, video still published)"
+        );
+      }
+    } catch (err) {
+      // ignore — video is published regardless, but surface it.
+      log.warn(
+        {
+          videoId,
+          playlistId: input.playlistId,
+          err: err instanceof Error ? err.message : String(err),
+        },
+        "playlist add threw (best-effort, ignored)"
+      );
     }
   }
 

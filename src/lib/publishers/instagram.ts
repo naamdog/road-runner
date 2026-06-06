@@ -1,5 +1,6 @@
 import type { Publisher } from "./types";
 import { PublisherError } from "./types";
+import { fetchWithTimeout } from "./http";
 
 /**
  * Instagram Reels publisher (via Instagram Graph API).
@@ -12,6 +13,10 @@ import { PublisherError } from "./types";
  *   1. POST /{ig-user-id}/media  with media_type=REELS and video_url
  *   2. Poll /{container-id}?fields=status_code  until FINISHED
  *   3. POST /{ig-user-id}/media_publish?creation_id=...
+ *
+ * No token refresher: Meta Page access tokens derived from a long-lived user
+ * token do not expire, so there is no `refreshInstagram` export. The dispatcher
+ * passes an already-decrypted access token; do not decrypt here.
  */
 export const publishInstagram: Publisher = async ({
   videoUrl,
@@ -28,7 +33,7 @@ export const publishInstagram: Publisher = async ({
   }
 
   // 1. Create container
-  const containerRes = await fetch(
+  const containerRes = await fetchWithTimeout(
     `https://graph.facebook.com/v19.0/${igUserId}/media`,
     {
       method: "POST",
@@ -50,13 +55,27 @@ export const publishInstagram: Publisher = async ({
   }
   const { id: creationId } = (await containerRes.json()) as { id: string };
 
-  // 2. Poll status
+  // 2. Poll status (each poll request has its own timeout so a single hung
+  //    request can't consume the whole 5-minute polling budget). A single
+  //    poll-request timeout is tolerated and we keep polling until FINISHED or
+  //    the overall budget expires — matching the original swallow-and-continue
+  //    behaviour on a transient request failure.
   const start = Date.now();
   while (Date.now() - start < 5 * 60 * 1000) {
     await new Promise((r) => setTimeout(r, 5000));
-    const statusRes = await fetch(
-      `https://graph.facebook.com/v19.0/${creationId}?fields=status_code&access_token=${accessToken}`
-    );
+    let statusRes: Response;
+    try {
+      statusRes = await fetchWithTimeout(
+        `https://graph.facebook.com/v19.0/${creationId}?fields=status_code&access_token=${accessToken}`,
+        undefined,
+        15000
+      );
+    } catch (err) {
+      // fetchWithTimeout throws a retryable PublisherError on timeout; treat a
+      // single poll timeout as transient and continue within the budget.
+      if (err instanceof PublisherError && err.retryable) continue;
+      throw err;
+    }
     if (!statusRes.ok) continue;
     const { status_code } = (await statusRes.json()) as { status_code: string };
     if (status_code === "FINISHED") break;
@@ -66,7 +85,7 @@ export const publishInstagram: Publisher = async ({
   }
 
   // 3. Publish
-  const publishRes = await fetch(
+  const publishRes = await fetchWithTimeout(
     `https://graph.facebook.com/v19.0/${igUserId}/media_publish`,
     {
       method: "POST",

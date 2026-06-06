@@ -40,3 +40,15 @@ export class NotConfiguredError extends PublisherError {
     this.name = "NotConfiguredError";
   }
 }
+
+export interface RefreshResult {
+  accessToken: string;
+  refreshToken?: string | null; // some providers rotate; if absent keep existing
+  accessTokenExpiresAt?: Date | null;
+}
+
+export type TokenRefresher = (input: {
+  refreshToken: string;
+  accessToken?: string | null;
+  metadata: Record<string, unknown> | null;
+}) => Promise<RefreshResult>;

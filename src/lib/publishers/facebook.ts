@@ -1,5 +1,6 @@
 import type { Publisher } from "./types";
 import { PublisherError } from "./types";
+import { fetchWithTimeout } from "./http";
 
 /**
  * Facebook Page Reels publisher.
@@ -10,6 +11,9 @@ import { PublisherError } from "./types";
  *   3. POST /{page-id}/video_reels?upload_phase=finish with video_state=PUBLISHED
  *
  * Required: page access token (long-lived) and `pages_manage_posts` scope.
+ *
+ * No token refresher: Meta Page access tokens derived from a long-lived user
+ * token do not expire, so there is nothing to refresh (see HARDENING_PLAN.md).
  */
 export const publishFacebook: Publisher = async ({
   videoUrl,
@@ -23,7 +27,7 @@ export const publishFacebook: Publisher = async ({
   }
 
   // 1. Start
-  const startRes = await fetch(
+  const startRes = await fetchWithTimeout(
     `https://graph.facebook.com/v19.0/${pageId}/video_reels?upload_phase=start&access_token=${accessToken}`,
     { method: "POST" }
   );
@@ -40,7 +44,7 @@ export const publishFacebook: Publisher = async ({
   }
 
   // 2. Transfer via file_url (PULL)
-  const transferRes = await fetch(upload_url, {
+  const transferRes = await fetchWithTimeout(upload_url, {
     method: "POST",
     headers: {
       Authorization: `OAuth ${accessToken}`,
@@ -60,7 +64,7 @@ export const publishFacebook: Publisher = async ({
   finishUrl.searchParams.set("video_state", "PUBLISHED");
   finishUrl.searchParams.set("description", caption);
 
-  const finishRes = await fetch(finishUrl, { method: "POST" });
+  const finishRes = await fetchWithTimeout(finishUrl.toString(), { method: "POST" });
   if (!finishRes.ok) {
     const t = await finishRes.text();
     throw new PublisherError(`Facebook publish failed: ${t.slice(0, 200)}`);

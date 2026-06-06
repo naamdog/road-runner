@@ -1,4 +1,6 @@
-import type { Publisher } from "./types";
+import { getConfig } from "../config";
+import { fetchWithTimeout } from "./http";
+import type { Publisher, RefreshResult, TokenRefresher } from "./types";
 import { PublisherError } from "./types";
 
 /**
@@ -16,7 +18,7 @@ export const publishTikTok: Publisher = async ({
   caption,
   accessToken,
 }) => {
-  const initRes = await fetch(
+  const initRes = await fetchWithTimeout(
     "https://open.tiktokapis.com/v2/post/publish/video/init/",
     {
       method: "POST",
@@ -57,7 +59,7 @@ export const publishTikTok: Publisher = async ({
   const start = Date.now();
   while (Date.now() - start < 5 * 60 * 1000) {
     await new Promise((r) => setTimeout(r, 6000));
-    const statusRes = await fetch(
+    const statusRes = await fetchWithTimeout(
       "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
       {
         method: "POST",
@@ -86,4 +88,71 @@ export const publishTikTok: Publisher = async ({
 
   // Timed out polling — still return success so user can verify
   return { publishedId: publishId, publishedUrl: null };
+};
+
+/**
+ * Refresh a TikTok access token using a refresh token.
+ *
+ * POST https://open.tiktokapis.com/v2/oauth/token/ with an
+ * `application/x-www-form-urlencoded` body. TikTok rotates the refresh token on
+ * each call, so the rotated value (when present) is returned; otherwise we keep
+ * the caller's existing one.
+ *
+ * Requires TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET (config.tiktok).
+ */
+export const refreshTikTok: TokenRefresher = async ({
+  refreshToken,
+}): Promise<RefreshResult> => {
+  const tiktok = getConfig().tiktok;
+  if (!tiktok) {
+    throw new PublisherError("TikTok not configured", false);
+  }
+
+  const body = new URLSearchParams({
+    client_key: tiktok.clientKey,
+    client_secret: tiktok.clientSecret,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+
+  const res = await fetchWithTimeout(
+    "https://open.tiktokapis.com/v2/oauth/token/",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: body.toString(),
+    }
+  );
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new PublisherError(
+      `TikTok token refresh failed (${res.status}): ${t.slice(0, 200)}`,
+      res.status >= 500 || res.status === 429
+    );
+  }
+
+  const j = (await res.json()) as {
+    access_token?: string;
+    expires_in?: number;
+    refresh_token?: string;
+    refresh_expires_in?: number;
+  };
+
+  if (!j.access_token) {
+    throw new PublisherError("TikTok token refresh returned no access_token", false);
+  }
+
+  const accessTokenExpiresAt =
+    typeof j.expires_in === "number"
+      ? new Date(Date.now() + j.expires_in * 1000)
+      : null;
+
+  return {
+    accessToken: j.access_token,
+    refreshToken: j.refresh_token ?? refreshToken,
+    accessTokenExpiresAt,
+  };
 };

@@ -1,5 +1,7 @@
-import type { Publisher } from "./types";
+import type { Publisher, TokenRefresher } from "./types";
 import { PublisherError } from "./types";
+import { fetchWithTimeout } from "./http";
+import { getConfig } from "../config";
 
 /**
  * LinkedIn video UGC post.
@@ -21,7 +23,7 @@ export const publishLinkedIn: Publisher = async ({
   }
 
   // 1. Register upload
-  const initRes = await fetch(
+  const initRes = await fetchWithTimeout(
     "https://api.linkedin.com/v2/assets?action=registerUpload",
     {
       method: "POST",
@@ -63,12 +65,12 @@ export const publishLinkedIn: Publisher = async ({
   }
 
   // 2. Stream the video from blob to LinkedIn
-  const videoRes = await fetch(videoUrl);
+  const videoRes = await fetchWithTimeout(videoUrl);
   if (!videoRes.ok) {
     throw new PublisherError("Could not fetch source video");
   }
   const buf = await videoRes.arrayBuffer();
-  const upRes = await fetch(uploadUrl, {
+  const upRes = await fetchWithTimeout(uploadUrl, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -81,7 +83,7 @@ export const publishLinkedIn: Publisher = async ({
   }
 
   // 3. Create UGC post
-  const postRes = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+  const postRes = await fetchWithTimeout("https://api.linkedin.com/v2/ugcPosts", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -119,5 +121,64 @@ export const publishLinkedIn: Publisher = async ({
     publishedUrl: postId.startsWith("urn:li:")
       ? `https://www.linkedin.com/feed/update/${encodeURIComponent(postId)}/`
       : null,
+  };
+};
+
+/**
+ * Refresh a LinkedIn access token via the OAuth refresh-token grant.
+ *
+ * NOTE: LinkedIn only issues refresh tokens to apps that have been granted the
+ * special "programmatic refresh tokens" capability; most apps never receive a
+ * refresh token and must re-run the OAuth consent flow. When the grant is not
+ * available LinkedIn responds with HTTP 400, which we surface as a terminal
+ * (non-retryable) error so the connection is flagged for reconnect rather than
+ * retried fruitlessly. Transient 429/5xx responses stay retryable.
+ *
+ * Required env: LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET
+ */
+export const refreshLinkedIn: TokenRefresher = async (input) => {
+  const config = getConfig().linkedin;
+  if (!config) {
+    throw new PublisherError("LinkedIn not configured", false);
+  }
+
+  const res = await fetchWithTimeout(
+    "https://www.linkedin.com/oauth/v2/accessToken",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: input.refreshToken,
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+      }).toString(),
+    }
+  );
+
+  if (!res.ok) {
+    const t = await res.text();
+    // 400 => the app lacks refresh-token approval (or the token is invalid):
+    // terminal, the connection must be re-authorized. 429/5xx are transient.
+    const retryable = res.status === 429 || res.status >= 500;
+    throw new PublisherError(
+      `LinkedIn token refresh failed (${res.status}): ${t.slice(0, 200)}`,
+      retryable
+    );
+  }
+
+  const data = (await res.json()) as {
+    access_token: string;
+    expires_in: number;
+    refresh_token?: string | null;
+    refresh_token_expires_in?: number;
+  };
+
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token ?? input.refreshToken,
+    accessTokenExpiresAt: new Date(Date.now() + data.expires_in * 1000),
   };
 };

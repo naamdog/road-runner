@@ -7,6 +7,10 @@ import { PLATFORMS, type Platform } from "@/lib/platforms";
 import { OAUTH_CONFIG, getRedirectUri } from "@/lib/oauth-config";
 import { verifyState } from "@/lib/oauth-state";
 import { getBaseUrl } from "@/lib/utils";
+import { encryptSecret } from "@/lib/crypto";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger({ scope: "oauth-callback" });
 
 export async function GET(
   req: NextRequest,
@@ -102,10 +106,26 @@ export async function GET(
       );
       if (longRes.ok) {
         const j = (await longRes.json()) as { access_token?: string };
-        if (j.access_token) userToken = j.access_token;
+        if (j.access_token) {
+          userToken = j.access_token;
+        } else {
+          log.warn(
+            { platform },
+            "Meta long-lived token exchange returned no access_token; falling back to short-lived user token — re-auth will be needed sooner"
+          );
+        }
+      } else {
+        log.warn(
+          { platform, status: longRes.status },
+          "Meta long-lived token exchange failed; falling back to short-lived user token — re-auth will be needed sooner"
+        );
       }
-    } catch {
+    } catch (err) {
       // fall back to short-lived; it still works for testing
+      log.warn(
+        { platform, err: err instanceof Error ? err.message : String(err) },
+        "Meta long-lived token exchange threw; falling back to short-lived user token — re-auth will be needed sooner"
+      );
     }
   }
 
@@ -123,6 +143,11 @@ export async function GET(
     const expiresAt = tokens.expires_in
       ? new Date(Date.now() + (tokens.expires_in as number) * 1000)
       : null;
+    // Encrypt at rest — never store platform tokens as plaintext.
+    const encAccessToken = encryptSecret(tokenToStore);
+    const encRefreshToken = tokens.refresh_token
+      ? encryptSecret(tokens.refresh_token)
+      : null;
 
     await db
       .insert(connection)
@@ -135,8 +160,8 @@ export async function GET(
         accountName: profile.accountName,
         accountHandle: profile.accountHandle,
         avatarUrl: profile.avatarUrl,
-        accessToken: tokenToStore,
-        refreshToken: tokens.refresh_token ?? null,
+        accessToken: encAccessToken,
+        refreshToken: encRefreshToken,
         accessTokenExpiresAt: expiresAt,
         scope: (tokens.scope as string) ?? cfg.scopes.join(" "),
         metadata: profile.metadata,
@@ -149,8 +174,8 @@ export async function GET(
           accountName: profile.accountName,
           accountHandle: profile.accountHandle,
           avatarUrl: profile.avatarUrl,
-          accessToken: tokenToStore,
-          refreshToken: tokens.refresh_token ?? null,
+          accessToken: encAccessToken,
+          refreshToken: encRefreshToken,
           accessTokenExpiresAt: expiresAt,
           scope: (tokens.scope as string) ?? cfg.scopes.join(" "),
           metadata: profile.metadata,
@@ -218,10 +243,13 @@ async function fetchProfiles(
         });
         if (res.ok) {
           const j = (await res.json()) as {
-            sub: string;
+            sub?: string;
             name?: string;
             picture?: string;
           };
+          // URN is required to publish on LinkedIn; refuse to save a broken
+          // connection if the member id can't be resolved.
+          if (!j.sub) break;
           return [
             {
               accountId: j.sub,
@@ -345,6 +373,9 @@ function noProfilesError(platform: Platform): string {
   }
   if (platform === "instagram") {
     return "No Instagram Business accounts found. Your Instagram must be a Business/Creator account linked to a Facebook Page you admin.";
+  }
+  if (platform === "linkedin") {
+    return "Couldn't resolve your LinkedIn member URN. Reconnect and grant profile access.";
   }
   return `${platform} returned no accounts`;
 }
