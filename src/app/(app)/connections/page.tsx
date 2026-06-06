@@ -11,7 +11,7 @@ import { readActiveBrandCookie } from "@/lib/active-brand";
 import { ConnectionsGrid, type ConnectionRow, type BrandLite } from "./connections-grid";
 import { Button } from "@/components/ui/button";
 
-export const metadata: Metadata = { title: "Accounts" };
+export const metadata: Metadata = { title: "Platform connections" };
 export const dynamic = "force-dynamic";
 
 export default async function ConnectionsPage() {

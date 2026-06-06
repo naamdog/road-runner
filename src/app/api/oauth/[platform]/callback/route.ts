@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { nanoid } from "nanoid";
-import { db } from "@/lib/db";
-import { connection } from "@/lib/db/schema";
 import { PLATFORMS, type Platform } from "@/lib/platforms";
 import { OAUTH_CONFIG, getRedirectUri } from "@/lib/oauth-config";
 import { verifyState } from "@/lib/oauth-state";
 import { getBaseUrl } from "@/lib/utils";
 import { encryptSecret } from "@/lib/crypto";
 import { createLogger } from "@/lib/logger";
+import {
+  META_PICK_COOKIE,
+  fetchMetaProfiles,
+  saveConnectionProfile,
+  type OAuthProfile,
+} from "@/lib/meta-pages";
 
 const log = createLogger({ scope: "oauth-callback" });
 
@@ -135,84 +138,62 @@ export async function GET(
     return redirectWithError(noProfilesError(platform as Platform));
   }
 
-  let saved = 0;
-  for (const profile of profiles) {
-    // For Meta, the connection's stored access token should be the Page token
-    // so publishers (which use connection.accessToken) call the right APIs.
-    const tokenToStore = profile.primaryToken ?? userToken;
-    // Meta (facebook/instagram) stores the PAGE token, which is non-expiring when
-    // derived from a long-lived user token. tokens.expires_in is the SHORT-LIVED
-    // *user* token's expiry — applying it here would wrongly flag the connection
-    // "needs reconnect" once it passes (there is no Meta refresher by design).
-    const isMeta = platform === "facebook" || platform === "instagram";
-    const expiresAt =
-      !isMeta && tokens.expires_in
-        ? new Date(Date.now() + (tokens.expires_in as number) * 1000)
-        : null;
-    // Encrypt at rest — never store platform tokens as plaintext.
-    const encAccessToken = encryptSecret(tokenToStore);
-    const encRefreshToken = tokens.refresh_token
-      ? encryptSecret(tokens.refresh_token)
+  const isMeta = platform === "facebook" || platform === "instagram";
+  const scope = (tokens.scope as string) ?? cfg.scopes.join(" ");
+  // Meta Page tokens (derived from the long-lived user token) don't expire;
+  // only non-Meta tokens carry a meaningful expiry to store.
+  const expiresAt =
+    !isMeta && tokens.expires_in
+      ? new Date(Date.now() + (tokens.expires_in as number) * 1000)
       : null;
 
-    await db
-      .insert(connection)
-      .values({
-        id: nanoid(),
-        userId: verified.userId,
+  // Meta with MORE THAN ONE Page / IG account: let the user pick exactly one
+  // (cleaner than auto-adding every Page they manage). Stash the encrypted user
+  // token briefly and hand off to the chooser page.
+  if (isMeta && profiles.length > 1) {
+    const res = NextResponse.redirect(new URL("/connections/choose-page", baseUrl));
+    res.cookies.set(
+      META_PICK_COOKIE,
+      JSON.stringify({
+        platform,
         brandId: verified.brandId,
-        platform: platform as Platform,
-        accountId: profile.accountId,
-        accountName: profile.accountName,
-        accountHandle: profile.accountHandle,
-        avatarUrl: profile.avatarUrl,
-        accessToken: encAccessToken,
-        refreshToken: encRefreshToken,
-        accessTokenExpiresAt: expiresAt,
-        scope: (tokens.scope as string) ?? cfg.scopes.join(" "),
-        metadata: profile.metadata,
-        isActive: true,
-      })
-      .onConflictDoUpdate({
-        target: [connection.userId, connection.platform, connection.accountId],
-        set: {
-          brandId: verified.brandId,
-          accountName: profile.accountName,
-          accountHandle: profile.accountHandle,
-          avatarUrl: profile.avatarUrl,
-          accessToken: encAccessToken,
-          refreshToken: encRefreshToken,
-          accessTokenExpiresAt: expiresAt,
-          scope: (tokens.scope as string) ?? cfg.scopes.join(" "),
-          metadata: profile.metadata,
-          isActive: true,
-          updatedAt: new Date(),
-        },
-      });
-    saved++;
+        token: encryptSecret(userToken),
+      }),
+      {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 600,
+        path: "/",
+      }
+    );
+    return res;
+  }
+
+  // Single account (or non-Meta): save it directly.
+  for (const profile of profiles) {
+    await saveConnectionProfile({
+      userId: verified.userId,
+      brandId: verified.brandId,
+      platform: platform as Platform,
+      profile,
+      fallbackToken: userToken,
+      refreshToken: tokens.refresh_token ?? null,
+      expiresAt,
+      scope,
+    });
   }
 
   const redirect = new URL("/connections", baseUrl);
   redirect.searchParams.set("connected", platform);
-  redirect.searchParams.set("count", String(saved));
+  redirect.searchParams.set("count", String(profiles.length));
   return NextResponse.redirect(redirect);
-}
-
-interface Profile {
-  accountId: string;
-  accountName: string;
-  accountHandle: string | null;
-  avatarUrl: string | null;
-  metadata: Record<string, unknown> | null;
-  /** When set, used as the connection's primary access token instead of the
-   * user OAuth token. For Meta this is the Page access token. */
-  primaryToken?: string;
 }
 
 async function fetchProfiles(
   platform: Platform,
   accessToken: string
-): Promise<Profile[]> {
+): Promise<OAuthProfile[]> {
   try {
     switch (platform) {
       case "youtube": {
@@ -290,89 +271,15 @@ async function fetchProfiles(
         }
         break;
       }
-      case "facebook": {
-        // Return EVERY Page the user granted access to as its own connection.
-        const pages = await fetchAllPages(accessToken);
-        return pages.map((page) => ({
-          accountId: page.id,
-          accountName: page.name || "Facebook Page",
-          accountHandle: null,
-          avatarUrl: page.picture?.data?.url || null,
-          // Page token lives ONLY in the encrypted accessToken column (primaryToken).
-          // Do not duplicate it into the unencrypted metadata JSON.
-          metadata: { pageId: page.id },
-          primaryToken: page.access_token,
-        }));
-      }
-      case "instagram": {
-        // Every Page that has a linked Instagram Business account becomes its
-        // own IG connection (the IG account, posted via the Page token).
-        const pages = await fetchAllPages(accessToken, true);
-        return pages
-          .filter((p) => p.instagram_business_account)
-          .map((page) => {
-            const ig = page.instagram_business_account!;
-            return {
-              accountId: ig.id,
-              accountName: ig.username || page.name,
-              accountHandle: ig.username || null,
-              avatarUrl: ig.profile_picture_url || null,
-              // Page token lives ONLY in the encrypted accessToken column.
-              metadata: {
-                igUserId: ig.id,
-                pageId: page.id,
-              },
-              primaryToken: page.access_token,
-            };
-          });
-      }
+      case "facebook":
+        return fetchMetaProfiles("facebook", accessToken);
+      case "instagram":
+        return fetchMetaProfiles("instagram", accessToken);
     }
   } catch {
     // fall through to empty list
   }
   return [];
-}
-
-type FbPage = {
-  id: string;
-  name: string;
-  access_token: string;
-  picture?: { data?: { url?: string } };
-  instagram_business_account?: {
-    id: string;
-    username?: string;
-    profile_picture_url?: string;
-  };
-};
-
-/** Paginated fetch of every Page the user manages. */
-async function fetchAllPages(
-  userToken: string,
-  includeIg = false
-): Promise<FbPage[]> {
-  const fields = includeIg
-    ? "id,name,access_token,picture,instagram_business_account{id,username,profile_picture_url}"
-    : "id,name,access_token,picture";
-
-  const pages: FbPage[] = [];
-  let url:
-    | string
-    | null =
-    `https://graph.facebook.com/v19.0/me/accounts?fields=${encodeURIComponent(fields)}&limit=100&access_token=${encodeURIComponent(userToken)}`;
-
-  while (url) {
-    const res: Response = await fetch(url);
-    if (!res.ok) break;
-    const j = (await res.json()) as {
-      data?: FbPage[];
-      paging?: { next?: string };
-    };
-    for (const p of j.data ?? []) pages.push(p);
-    url = j.paging?.next ?? null;
-    // Cap so a malformed paging cursor can't loop forever.
-    if (pages.length >= 500) break;
-  }
-  return pages;
 }
 
 function noProfilesError(platform: Platform): string {
