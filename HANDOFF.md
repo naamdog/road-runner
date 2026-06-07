@@ -30,6 +30,43 @@ The §9 build order was executed (scope: **everything except billing/quotas and 
 
 ---
 
+## 0.1 — Session 2 update (2026-06-07): made it actually usable + fast
+
+Everything below is **committed to `main` and deployed to production** (Vercel auto-deploys `main`; latest ≈ commit `d07ffc6`). Build + 65 tests green. Package manager is **pnpm**.
+
+**The big fixes this session (all live & verified):**
+1. **Uploads were 100% broken since launch → fixed.** The Vercel Blob store was **private**, but the app uploads with `access:"public"`, so every upload silently failed (the browser showed a misleading "CORS" error). Created a **public** Blob store (`road-runner-public`), repointed `BLOB_READ_WRITE_TOKEN`, deleted the old private store. Also removed `multipart:true` from the client `upload()` (it hung via `/api/blob/mpu` CORS). **The Blob store MUST stay public** (publishers fetch the blob URL). Verified end-to-end in a real browser.
+2. **Performance: pages took ~3s → now ~0.2–0.5s.** Root cause: Neon DB is in **Singapore (ap-southeast-1)** but Vercel functions defaulted to **iad1 (US-East)** → every query was a ~250ms trans-Pacific round-trip. Fixed by pinning functions to **`sin1`** in `vercel.json` (`"regions": ["sin1"]`) — co-located with the DB and close to the user. **Keep `regions: ["sin1"]`.**
+3. **TubeRunner date crash fixed.** `localToIso`/`labelFromIso` called `.toISOString()` on an Invalid Date during render while the date field was mid-edit → threw → error boundary. Now guarded (empty/invalid → "" / "Pick a date & time"). Hardened the short-form copy too.
+4. **Compose UX overhaul** (`compose-form.tsx`): browser-detected timezone shown **bold** and used for scheduling (was wrongly the profile default "UTC"); single account pre-selected; quick-time presets; plain-English "posts Sun, Jun 7, 8:00 AM" line; **orientation/length guidance** (portrait → Shorts/Reels OK; landscape → warns + links to YouTube Long Form; per-platform fit chips from `PLATFORM_META.videoSpecs`).
+
+**UX cleanup / renames (live):**
+- **Removed Re-runner entirely** (pages, `/api/re-runner`, `src/lib/rerunner`, nav, command palette).
+- **Removed search/command palette**, the top-right "New post" button, and the Settings **timezone** field (auto-detected now).
+- Renames everywhere: Home→**Dashboard**, New Short→**New Short / Reel**, TubeRunner→**YouTube Long Form**, Lined up→**Scheduled**, Accounts→**Platform connections**. Cheeky section intros added to every page.
+- **Scheduled filters** trimmed to **All / Scheduled / Published / Failed** (dropped Publishing + Canceled).
+
+**New features (live):**
+- **Facebook/Instagram "pick ONE Page" on connect.** If a Meta login exposes >1 Page/IG account, the callback stashes the encrypted user token in a short-lived cookie (`META_PICK_COOKIE`) and redirects to **`/connections/choose-page`** to choose one (instead of auto-adding all). New: `src/lib/meta-pages.ts` (`fetchMetaProfiles`, `saveConnectionProfile`), the chooser page + form, and `POST /api/meta/select-page`.
+- **"Remove from view"** on the Scheduled page for published/failed/canceled rows → `DELETE /api/posts/targets/[id]?remove=1` hard-deletes the row (+ orphan post). Default `DELETE` still soft-cancels. (User uses this to clear entries for posts they deleted on the platform.)
+
+**⚠️ ACTION NEEDED (user, not code):**
+- **Reconnect YouTube** — the stored token's refresh returned `invalid_grant` (dead). It will keep dying every ~7 days unless the **Google OAuth consent screen is published** (Testing → In production). Verified live via `scripts/test-youtube-credential.ts`.
+- **YouTube uploads land PRIVATE** until the Google Cloud project passes a **YouTube Data API audit** (Google policy, not a bug). Submit the audit for public Shorts/videos.
+- **Instagram won't publish yet**: `oauth-config.ts` is **missing IG publish scopes** (`instagram_basic` / `instagram_content_publish`) AND Meta requires **App Review + Business Verification**. (Facebook Reels works for the owner/admin on a dev-mode app.)
+- **TikTok / LinkedIn**: still dark (no env keys). LinkedIn ~1hr/free; TikTok public posting needs their Content-Posting-API audit.
+- **Resend email**: wired + graceful-degrade; set `RESEND_API_KEY` + `EMAIL_FROM` to enable, then flip `REQUIRE_EMAIL_VERIFICATION="true"`.
+
+**Known latent issues / next polish:**
+- **Meta Graph API is hardcoded `v19.0`, which Meta sunset 2026-05-21** — bump to a current version (centralize the version) in `meta-pages.ts`, `oauth-config.ts`, publishers `facebook.ts`/`instagram.ts`, the callback.
+- Next 16 deprecation: rename `src/middleware.ts` → `proxy.ts` (still works; warns).
+- `/favicon.svg` 404 (minor). Rate limiter is in-memory/per-instance (Upstash for prod-grade).
+- "Does API posting hurt reach?" — answered: **no blanket third-party penalty**; the real lever is feature parity (trending/licensed audio can't be added via API on Reels/TikTok; TikTok favors native creation). YouTube/LinkedIn: no penalty. (A web-research pass for citations failed — agents couldn't reach web tools; re-run if sources wanted.)
+
+**Local-dev gotchas:** `.env.local` (pulled from Vercel) has PROD URLs, so local sign-up 403s — run `NEXT_PUBLIC_APP_URL=http://localhost:3000 BETTER_AUTH_URL=http://localhost:3000 pnpm dev`. Commit via bash **heredoc** (`git commit -F - <<'EOF'`), not PowerShell `@'...'@`. drizzle-kit needs `DOTENV_CONFIG_PATH=.env.local`; `push` needs a TTY → use `scripts/apply-sql-migration.ts`. Vercel env changes need a **redeploy**. Operational scripts in `scripts/`: `preflight-migration-check`, `apply-sql-migration`, `encrypt-existing-tokens`, `inspect-state`, `test-youtube-credential`.
+
+---
+
 ## 1. TL;DR
 
 **Road Runner** is a focused, multi-tenant SaaS for short-form video scheduling: upload once, fan out to five platforms (YouTube Shorts, Instagram Reels, TikTok, LinkedIn, Facebook Reels) on a per-account schedule, with a minute-precision cron dispatcher and exponential-backoff retries. It bundles two adjacent surfaces: **Re-runner** (resurface + repost your top-performing videos) and **TubeRunner** (long-form YouTube with full metadata/playlists/thumbnails).
