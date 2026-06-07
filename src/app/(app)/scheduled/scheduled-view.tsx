@@ -13,6 +13,7 @@ import {
   List,
   Loader2,
   RotateCw,
+  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -81,6 +82,28 @@ export function ScheduledView({ rows }: { rows: Row[] }) {
     }
   }
 
+  async function remove(id: string) {
+    if (
+      !window.confirm(
+        "Remove this from your list? It only clears Road Runner's record — it won't touch the post on the platform."
+      )
+    )
+      return;
+    setPending(id);
+    try {
+      const res = await fetch(`/api/posts/targets/${id}?remove=1`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Could not remove");
+      toast.success("Removed from your list.");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not remove.");
+    } finally {
+      setPending(null);
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -112,6 +135,7 @@ export function ScheduledView({ rows }: { rows: Row[] }) {
           rows={filtered}
           onCancel={cancel}
           onRetry={retry}
+          onRemove={remove}
           pending={pending}
         />
       ) : (
@@ -163,11 +187,13 @@ function ListView({
   rows,
   onCancel,
   onRetry,
+  onRemove,
   pending,
 }: {
   rows: Row[];
   onCancel: (id: string) => void;
   onRetry: (id: string) => void;
+  onRemove: (id: string) => void;
   pending: string | null;
 }) {
   // Group by day
@@ -228,6 +254,7 @@ function ListView({
                     row={r}
                     onCancel={onCancel}
                     onRetry={onRetry}
+                    onRemove={onRemove}
                     pending={pending === r.id}
                   />
                 </li>
@@ -244,40 +271,66 @@ function RowActions({
   row,
   onCancel,
   onRetry,
+  onRemove,
   pending,
 }: {
   row: Row;
   onCancel: (id: string) => void;
   onRetry: (id: string) => void;
+  onRemove: (id: string) => void;
   pending: boolean;
 }) {
-  if (row.status === "published" && row.publishedUrl) {
+  const removeBtn = (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      disabled={pending}
+      onClick={() => onRemove(row.id)}
+      title="Remove from your list (doesn't touch the post on the platform)"
+    >
+      {pending ? (
+        <Loader2 className="size-3 animate-spin" />
+      ) : (
+        <Trash2 className="size-3" />
+      )}
+    </Button>
+  );
+
+  if (row.status === "published") {
     return (
-      <a
-        href={row.publishedUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-xs text-brand hover:underline px-2 py-1"
-      >
-        View ↗
-      </a>
+      <div className="flex items-center gap-1 shrink-0">
+        {row.publishedUrl ? (
+          <a
+            href={row.publishedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-brand hover:underline px-2 py-1"
+          >
+            View ↗
+          </a>
+        ) : null}
+        {removeBtn}
+      </div>
     );
   }
   if (row.status === "failed") {
     return (
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={pending}
-        onClick={() => onRetry(row.id)}
-      >
-        {pending ? (
-          <Loader2 className="size-3 animate-spin" />
-        ) : (
-          <RotateCw className="size-3" />
-        )}
-        Retry
-      </Button>
+      <div className="flex items-center gap-1 shrink-0">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={pending}
+          onClick={() => onRetry(row.id)}
+        >
+          {pending ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <RotateCw className="size-3" />
+          )}
+          Retry
+        </Button>
+        {removeBtn}
+      </div>
     );
   }
   if (row.status === "scheduled") {
@@ -296,6 +349,9 @@ function RowActions({
         )}
       </Button>
     );
+  }
+  if (row.status === "canceled") {
+    return removeBtn;
   }
   return null;
 }
