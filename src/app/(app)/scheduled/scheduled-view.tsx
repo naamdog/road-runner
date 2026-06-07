@@ -155,10 +155,8 @@ function StatusFilter({
   const opts: { id: PostStatus | "all"; label: string }[] = [
     { id: "all", label: "All" },
     { id: "scheduled", label: "Scheduled" },
-    { id: "publishing", label: "Publishing" },
     { id: "published", label: "Published" },
     { id: "failed", label: "Failed" },
-    { id: "canceled", label: "Canceled" },
   ];
   return (
     <div className="flex items-center gap-2">
