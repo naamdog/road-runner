@@ -232,7 +232,12 @@ export function ConnectionsGrid({
                 {accounts.map((conn) => (
                   <div
                     key={conn.id}
-                    className="flex items-center gap-2"
+                    className={cn(
+                      "flex items-center gap-2 rounded-md border px-2.5 py-2 transition-colors",
+                      conn.needsReconnect
+                        ? "border-amber-500/45 bg-amber-500/5"
+                        : "border-border bg-surface-2/40 hover:bg-surface-2"
+                    )}
                   >
                     <Avatar className="size-7">
                       {conn.avatarUrl ? (
