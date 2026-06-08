@@ -28,6 +28,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { PlatformIcon } from "@/components/platform-icon";
+import { BrandChip } from "@/components/brand-chip";
 import {
   PLATFORM_META,
   type Platform,
@@ -567,13 +568,7 @@ export function ComposeForm({
           </p>
           <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
             {activeBrand ? (
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className="size-2 rounded-full"
-                  style={{ background: activeBrand.color }}
-                />
-                <span className="text-foreground font-medium">{activeBrand.name}</span>
-              </span>
+              <BrandChip name={activeBrand.name} color={activeBrand.color} />
             ) : null}
             <span>·</span>
             <span>

@@ -9,6 +9,7 @@ import { getOrCreateBrands } from "@/lib/brands";
 import { readActiveBrandCookie } from "@/lib/active-brand";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { BrandChip } from "@/components/brand-chip";
 import { TubeList, type TubeRow } from "./tube-list";
 
 export const metadata: Metadata = { title: "YouTube Long Form" };
@@ -96,11 +97,8 @@ export default async function TubePage() {
           <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
             {activeBrand ? (
               <>
-                <span
-                  className="size-2 rounded-full"
-                  style={{ background: activeBrand.color }}
-                />
-                Proper long-form YouTube uploads — titles, tags, thumbnails, playlists, the lot. Landscape lives here; vertical clips belong in &apos;New Short / Reel&apos;. Posting for <span className="text-foreground font-medium">{activeBrand.name}</span>
+                Proper long-form YouTube uploads — titles, tags, thumbnails, playlists, the lot. Landscape lives here; vertical clips belong in &apos;New Short / Reel&apos;. Posting for{" "}
+                <BrandChip name={activeBrand.name} color={activeBrand.color} />
               </>
             ) : (
               <>Proper long-form YouTube uploads — titles, tags, thumbnails, playlists, the lot. Landscape lives here; vertical clips belong in &apos;New Short / Reel&apos;.</>

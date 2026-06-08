@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { post, postTarget, media } from "@/lib/db/schema";
 import { requireUser } from "@/lib/session";
 import { Button } from "@/components/ui/button";
+import { BrandChip } from "@/components/brand-chip";
 import { ScheduledView } from "./scheduled-view";
 import { getOrCreateBrands } from "@/lib/brands";
 import { readActiveBrandCookie } from "@/lib/active-brand";
@@ -42,11 +43,8 @@ export default async function ScheduledPage() {
           <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
             {activeBrand ? (
               <>
-                <span
-                  className="size-2 rounded-full"
-                  style={{ background: activeBrand.color }}
-                />
-                Showing posts for <span className="text-foreground font-medium">{activeBrand.name}</span>
+                Showing posts for{" "}
+                <BrandChip name={activeBrand.name} color={activeBrand.color} />
               </>
             ) : (
               <>All your scheduled and finished posts.</>

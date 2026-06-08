@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PlatformIcon } from "@/components/platform-icon";
+import { BrandChip } from "@/components/brand-chip";
 import { PLATFORM_META, type Platform } from "@/lib/platforms";
 import { Separator } from "@/components/ui/separator";
 import { getOrCreateBrands } from "@/lib/brands";
@@ -61,11 +62,8 @@ export default async function DashboardPage() {
           <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
             {activeBrand ? (
               <>
-                <span
-                  className="size-2 rounded-full"
-                  style={{ background: activeBrand.color }}
-                />
-                Showing the <span className="text-foreground font-medium">{activeBrand.name}</span> brand
+                Showing{" "}
+                <BrandChip name={activeBrand.name} color={activeBrand.color} />
               </>
             ) : (
               <>Here's what's going on today.</>

@@ -34,6 +34,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { BrandChip } from "@/components/brand-chip";
 import {
   Select,
   SelectContent,
@@ -482,13 +483,7 @@ export function TubeComposeForm({ accounts, activeBrand, timezone }: Props) {
           </p>
           <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
             {activeBrand ? (
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className="size-2 rounded-full"
-                  style={{ background: activeBrand.color }}
-                />
-                <span className="text-foreground font-medium">{activeBrand.name}</span>
-              </span>
+              <BrandChip name={activeBrand.name} color={activeBrand.color} />
             ) : null}
             <span>·</span>
             <span>
