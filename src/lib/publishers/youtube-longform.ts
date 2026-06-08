@@ -23,6 +23,11 @@ export interface LongFormResult {
   videoUrl: string;
   /** Best-effort: whether the playlist add succeeded. */
   addedToPlaylist?: boolean;
+  /**
+   * Best-effort: whether the custom thumbnail was set. `undefined` means no
+   * thumbnail was requested, `false` means it was requested but failed.
+   */
+  thumbnailSet?: boolean;
 }
 
 /**
@@ -111,7 +116,10 @@ export async function publishYouTubeLongform(
     throw new PublisherError("YouTube did not return a video id");
   }
 
-  // 4. Optional thumbnail upload (best-effort — channel must be verified)
+  // 4. Optional thumbnail upload (best-effort — channel must be verified).
+  // Track the outcome so the dispatcher can tell the operator if the chosen
+  // thumbnail silently didn't stick (otherwise the post looks fully published).
+  let thumbnailSet: boolean | undefined = undefined;
   if (input.thumbnailUrl) {
     try {
       const thumbRes = await fetchWithTimeout(input.thumbnailUrl);
@@ -129,6 +137,7 @@ export async function publishYouTubeLongform(
             body: thumbBody,
           }
         );
+        thumbnailSet = setRes.ok;
         if (!setRes.ok) {
           log.warn(
             { videoId, status: setRes.status },
@@ -136,6 +145,7 @@ export async function publishYouTubeLongform(
           );
         }
       } else {
+        thumbnailSet = false;
         log.warn(
           { videoId, status: thumbRes.status },
           "could not fetch thumbnail source (best-effort)"
@@ -143,6 +153,7 @@ export async function publishYouTubeLongform(
       }
     } catch (err) {
       // Don't fail the whole publish if thumbnail fails — but surface it.
+      thumbnailSet = false;
       log.warn(
         { videoId, err: err instanceof Error ? err.message : String(err) },
         "thumbnail upload threw (best-effort, ignored)"
@@ -197,5 +208,6 @@ export async function publishYouTubeLongform(
     videoId,
     videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
     addedToPlaylist,
+    thumbnailSet,
   };
 }

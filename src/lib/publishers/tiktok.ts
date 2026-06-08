@@ -59,17 +59,27 @@ export const publishTikTok: Publisher = async ({
   const start = Date.now();
   while (Date.now() - start < 5 * 60 * 1000) {
     await new Promise((r) => setTimeout(r, 6000));
-    const statusRes = await fetchWithTimeout(
-      "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json; charset=UTF-8",
+    let statusRes: Response;
+    try {
+      statusRes = await fetchWithTimeout(
+        "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json; charset=UTF-8",
+          },
+          body: JSON.stringify({ publish_id: publishId }),
         },
-        body: JSON.stringify({ publish_id: publishId }),
-      }
-    );
+        15000
+      );
+    } catch (err) {
+      // fetchWithTimeout throws a retryable PublisherError on timeout; tolerate a
+      // single hung status request and keep polling within the budget (matching
+      // the Instagram publisher) rather than tearing down the whole publish.
+      if (err instanceof PublisherError && err.retryable) continue;
+      throw err;
+    }
     if (!statusRes.ok) continue;
     const s = await statusRes.json();
     const status = s?.data?.status;
@@ -86,8 +96,14 @@ export const publishTikTok: Publisher = async ({
     }
   }
 
-  // Timed out polling — still return success so user can verify
-  return { publishedId: publishId, publishedUrl: null };
+  // Timed out without a terminal status. Do NOT report success — the upload is
+  // unconfirmed (still processing, stuck, or sandbox-UNLISTED). Mark it failed so
+  // the operator is told to verify. retryable=false because there is no resume-by
+  // -publish_id path: a retry would re-init from scratch and risk a duplicate post.
+  throw new PublisherError(
+    `TikTok upload ${publishId} still processing after 5 min — publish unconfirmed. Check TikTok and retry if it did not post.`,
+    false
+  );
 };
 
 /**

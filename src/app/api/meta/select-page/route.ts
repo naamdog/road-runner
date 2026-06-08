@@ -8,9 +8,12 @@ import {
   fetchMetaProfiles,
   saveConnectionProfile,
 } from "@/lib/meta-pages";
+import { createLogger } from "@/lib/logger";
 import type { Platform } from "@/lib/platforms";
 
 export const runtime = "nodejs";
+
+const log = createLogger({ scope: "meta-select-page" });
 
 /**
  * Finalize a Meta connection after the user picks ONE Page / IG account.
@@ -64,18 +67,34 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  await saveConnectionProfile({
-    userId: session.user.id,
-    brandId: parsed.brandId,
-    platform: parsed.platform as Platform,
-    profile,
-    fallbackToken: userToken,
-    refreshToken: null,
-    expiresAt: null, // Meta Page tokens (from a long-lived user token) don't expire
-    scope: OAUTH_CONFIG[parsed.platform as Platform].scopes.join(" "),
-  });
+  try {
+    await saveConnectionProfile({
+      userId: session.user.id,
+      brandId: parsed.brandId,
+      platform: parsed.platform as Platform,
+      profile,
+      fallbackToken: userToken,
+      refreshToken: null,
+      expiresAt: null, // Meta Page tokens (from a long-lived user token) don't expire
+      scope: OAUTH_CONFIG[parsed.platform as Platform].scopes.join(" "),
+    });
+  } catch (err) {
+    log.error(
+      {
+        platform: parsed.platform,
+        accountId: body.accountId,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      "Failed to save Meta connection from page picker"
+    );
+    // Leave the pick cookie intact so the operator can retry.
+    return NextResponse.json(
+      { error: "Couldn't save that connection. Try again." },
+      { status: 500 }
+    );
+  }
 
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(META_PICK_COOKIE, "", { path: "/", maxAge: 0 }); // clear
+  res.cookies.set(META_PICK_COOKIE, "", { path: "/", maxAge: 0 }); // clear only after a confirmed save
   return res;
 }

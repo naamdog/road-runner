@@ -7,12 +7,13 @@ import {
   Plus,
   Sparkles,
   Timer,
+  TriangleAlert,
   TrendingUp,
 } from "lucide-react";
 import type { Metadata } from "next";
 import { and, count, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { post, postTarget, connection } from "@/lib/db/schema";
+import { post, postTarget, connection, tubePost } from "@/lib/db/schema";
 import { requireUser } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -78,6 +79,32 @@ export default async function DashboardPage() {
           </Link>
         </Button>
       </div>
+
+      {stats.failed > 0 || stats.needsReconnect > 0 ? (
+        <Link
+          href={stats.failed > 0 ? "/scheduled" : "/connections"}
+          className="flex items-center gap-3 mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 transition-colors hover:bg-destructive/15"
+        >
+          <TriangleAlert className="size-5 text-destructive shrink-0" />
+          <div className="flex-1 text-sm">
+            <span className="font-medium text-foreground">Needs attention.</span>{" "}
+            <span className="text-muted-foreground">
+              {[
+                stats.failed > 0
+                  ? `${stats.failed} post${stats.failed === 1 ? "" : "s"} failed to publish`
+                  : null,
+                stats.needsReconnect > 0
+                  ? `${stats.needsReconnect} account${stats.needsReconnect === 1 ? "" : "s"} need${stats.needsReconnect === 1 ? "s" : ""} reconnecting`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              . These won't fix themselves — take a look.
+            </span>
+          </div>
+          <ArrowUpRight className="size-4 text-muted-foreground shrink-0" />
+        </Link>
+      ) : null}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
@@ -381,57 +408,109 @@ async function getStats(userId: string, brandId?: string) {
       ? and(eq(postTarget.userId, userId), eq(post.brandId, brandId))
       : eq(postTarget.userId, userId);
 
-    const [[scheduledRow], [publishedRow7], [publishedRow30], [connectionsRow]] =
-      await Promise.all([
-        db
-          .select({ c: count() })
-          .from(postTarget)
-          .innerJoin(post, eq(postTarget.postId, post.id))
-          .where(and(baseTargetWhere, eq(postTarget.status, "scheduled"))),
-        db
-          .select({ c: count() })
-          .from(postTarget)
-          .innerJoin(post, eq(postTarget.postId, post.id))
-          .where(
-            and(
-              baseTargetWhere,
-              eq(postTarget.status, "published"),
-              gte(postTarget.publishedAt, sevenDaysAgo)
-            )
-          ),
-        db
-          .select({ c: count() })
-          .from(postTarget)
-          .innerJoin(post, eq(postTarget.postId, post.id))
-          .where(
-            and(
-              baseTargetWhere,
-              eq(postTarget.status, "published"),
-              gte(postTarget.publishedAt, thirtyDaysAgo)
-            )
-          ),
-        db
-          .select({ c: count() })
-          .from(connection)
-          .where(
-            brandId
-              ? and(
-                  eq(connection.userId, userId),
-                  eq(connection.brandId, brandId),
-                  eq(connection.isActive, true)
-                )
-              : and(eq(connection.userId, userId), eq(connection.isActive, true))
-          ),
-      ]);
+    const [
+      [scheduledRow],
+      [publishedRow7],
+      [publishedRow30],
+      [connectionsRow],
+      [failedShortRow],
+      [failedTubeRow],
+      [reconnectRow],
+    ] = await Promise.all([
+      db
+        .select({ c: count() })
+        .from(postTarget)
+        .innerJoin(post, eq(postTarget.postId, post.id))
+        .where(and(baseTargetWhere, eq(postTarget.status, "scheduled"))),
+      db
+        .select({ c: count() })
+        .from(postTarget)
+        .innerJoin(post, eq(postTarget.postId, post.id))
+        .where(
+          and(
+            baseTargetWhere,
+            eq(postTarget.status, "published"),
+            gte(postTarget.publishedAt, sevenDaysAgo)
+          )
+        ),
+      db
+        .select({ c: count() })
+        .from(postTarget)
+        .innerJoin(post, eq(postTarget.postId, post.id))
+        .where(
+          and(
+            baseTargetWhere,
+            eq(postTarget.status, "published"),
+            gte(postTarget.publishedAt, thirtyDaysAgo)
+          )
+        ),
+      db
+        .select({ c: count() })
+        .from(connection)
+        .where(
+          brandId
+            ? and(
+                eq(connection.userId, userId),
+                eq(connection.brandId, brandId),
+                eq(connection.isActive, true)
+              )
+            : and(eq(connection.userId, userId), eq(connection.isActive, true))
+        ),
+      // Failed short-form targets — these silently drop out of every other
+      // count, so surface them explicitly.
+      db
+        .select({ c: count() })
+        .from(postTarget)
+        .innerJoin(post, eq(postTarget.postId, post.id))
+        .where(and(baseTargetWhere, eq(postTarget.status, "failed"))),
+      // Failed long-form (TubeRunner) posts.
+      db
+        .select({ c: count() })
+        .from(tubePost)
+        .where(
+          brandId
+            ? and(
+                eq(tubePost.userId, userId),
+                eq(tubePost.brandId, brandId),
+                eq(tubePost.status, "failed")
+              )
+            : and(eq(tubePost.userId, userId), eq(tubePost.status, "failed"))
+        ),
+      // Connections flagged as needing the operator to reconnect.
+      db
+        .select({ c: count() })
+        .from(connection)
+        .where(
+          brandId
+            ? and(
+                eq(connection.userId, userId),
+                eq(connection.brandId, brandId),
+                eq(connection.needsReconnect, true)
+              )
+            : and(
+                eq(connection.userId, userId),
+                eq(connection.needsReconnect, true)
+              )
+        ),
+    ]);
 
     return {
       scheduled: Number(scheduledRow?.c ?? 0),
       published7d: Number(publishedRow7?.c ?? 0),
       published30d: Number(publishedRow30?.c ?? 0),
       connections: Number(connectionsRow?.c ?? 0),
+      failed: Number(failedShortRow?.c ?? 0) + Number(failedTubeRow?.c ?? 0),
+      needsReconnect: Number(reconnectRow?.c ?? 0),
     };
   } catch {
-    return { scheduled: 0, published7d: 0, published30d: 0, connections: 0 };
+    return {
+      scheduled: 0,
+      published7d: 0,
+      published30d: 0,
+      connections: 0,
+      failed: 0,
+      needsReconnect: 0,
+    };
   }
 }
 

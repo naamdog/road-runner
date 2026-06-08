@@ -86,10 +86,15 @@ export const publishYouTube: Publisher = async ({
   }
 
   const result = await uploadRes.json();
-  const videoId = result.id;
+  const videoId: string | undefined = result.id;
+  if (!videoId) {
+    // A 200 with no id means the upload did not actually create a video.
+    // Throw instead of recording a phantom "published" row with no URL.
+    throw new PublisherError("YouTube did not return a video id");
+  }
   return {
     publishedId: videoId,
-    publishedUrl: videoId ? `https://youtube.com/shorts/${videoId}` : null,
+    publishedUrl: `https://youtube.com/shorts/${videoId}`,
   };
 };
 

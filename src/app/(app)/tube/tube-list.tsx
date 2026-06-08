@@ -143,10 +143,17 @@ export function TubeList({ rows }: { rows: TubeRow[] }) {
                       ? `posted ${formatDate(r.publishedAt)}`
                       : `${formatDate(r.scheduledAt)} at ${formatTime(r.scheduledAt)}`}
                   </span>
-                  {r.lastError && r.status === "failed" ? (
+                  {r.lastError &&
+                  (r.status === "failed" || r.status === "published") ? (
                     <>
                       <span>·</span>
-                      <span className="text-destructive truncate max-w-[300px]">
+                      <span
+                        className={`truncate max-w-[300px] ${
+                          r.status === "failed"
+                            ? "text-destructive"
+                            : "text-amber-600 dark:text-amber-500"
+                        }`}
+                      >
                         {r.lastError}
                       </span>
                     </>

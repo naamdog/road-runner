@@ -11,7 +11,7 @@ The §9 build order was executed (scope: **everything except billing/quotas and 
 **Package manager is `pnpm`, NOT npm** — `npm install` breaks on the pnpm store. Use `pnpm install` / `pnpm run <script>` everywhere. (The §2 `npm` commands below are wrong.)
 
 **What changed (done + verified):**
-- **Tokens encrypted at rest** — AES-256-GCM (`src/lib/crypto.ts`); OAuth callback encrypts on write; `connection` tokens migrated via `scripts/encrypt-existing-tokens.ts`. New env **`TOKEN_ENC_KEY`** (base64 32 bytes) is set in Vercel prod+dev — **back it up; losing it makes stored tokens unrecoverable.** Crypto has a legacy-plaintext passthrough for zero-downtime migration. Meta Page token no longer duplicated in plaintext `metadata`.
+- **Tokens encrypted at rest** — AES-256-GCM (`src/lib/crypto.ts`); OAuth callback encrypts on write; `connection` tokens migrated via `scripts/encrypt-existing-tokens.ts`. New env **`TOKEN_ENC_KEY`** (base64 32 bytes) is set in Vercel prod+dev — **back it up; losing it makes stored tokens unrecoverable.** ⚠️ **Rotating it is equally destructive** — `decryptSecret` has no previous-key fallback, so swapping `TOKEN_ENC_KEY` directly makes every stored token undecryptable (posts then fail and the connection auto-flags *needs-reconnect* — see Session 3). To rotate safely: with BOTH keys available, run a re-encrypt migration (decrypt-with-old → re-encrypt-with-new across `connection` + `account` + `verification.value`), commit, THEN swap the env var. (`scripts/encrypt-existing-tokens.ts` can be adapted.) Crypto has a legacy-plaintext passthrough for zero-downtime migration. Meta Page token no longer duplicated in plaintext `metadata`.
 - **Token refresh + lifecycle** — per-platform `refresh()` (YouTube/TikTok/LinkedIn) in the publishers; `src/lib/token-refresh.ts#ensureFreshAccessToken` refreshes before expiry, persists re-encrypted tokens, flags `connection.needsReconnect` on *permanent* failures only (transient blips stay retryable). Meta Page tokens are treated as non-expiring (`accessTokenExpiresAt=null`). Token-health endpoint `GET /api/connections/[id]/health`; "needs reconnect" badge in the connections UI.
 - **Dispatcher hardened** (`src/app/api/cron/dispatch/route.ts`) — claim via `SELECT … FOR UPDATE SKIP LOCKED` in a short tx (no double-claim), publish outside the lock, ±30% backoff jitter, structured logging (pino), a **reaper** that resets rows stuck in `publishing`, and a resilient finalize that won't reschedule a duplicate after a successful upload.
 - **Uploads** — direct-to-Blob client uploads via `@vercel/blob` `handleUpload` (bypasses the 60s function); size-scoped tokens; `pathname` threaded through so `blobPath` is no longer a fragile url-split.
@@ -58,12 +58,33 @@ Everything below is **committed to `main` and deployed to production** (Vercel a
 - **Resend email**: wired + graceful-degrade; set `RESEND_API_KEY` + `EMAIL_FROM` to enable, then flip `REQUIRE_EMAIL_VERIFICATION="true"`.
 
 **Known latent issues / next polish:**
-- **Meta Graph API is hardcoded `v19.0`, which Meta sunset 2026-05-21** — bump to a current version (centralize the version) in `meta-pages.ts`, `oauth-config.ts`, publishers `facebook.ts`/`instagram.ts`, the callback.
+- ~~**Meta Graph API hardcoded `v19.0`** (sunset 2026-05-21)~~ — **DONE (Session 3):** centralized to `src/lib/meta-graph.ts` (`META_GRAPH_VERSION = "v25.0"`); all 11 call sites import it. Next bump is a one-line change (v20.0 deprecates 2026-09-24).
 - Next 16 deprecation: rename `src/middleware.ts` → `proxy.ts` (still works; warns).
 - `/favicon.svg` 404 (minor). Rate limiter is in-memory/per-instance (Upstash for prod-grade).
 - "Does API posting hurt reach?" — answered: **no blanket third-party penalty**; the real lever is feature parity (trending/licensed audio can't be added via API on Reels/TikTok; TikTok favors native creation). YouTube/LinkedIn: no penalty. (A web-research pass for citations failed — agents couldn't reach web tools; re-run if sources wanted.)
 
 **Local-dev gotchas:** `.env.local` (pulled from Vercel) has PROD URLs, so local sign-up 403s — run `NEXT_PUBLIC_APP_URL=http://localhost:3000 BETTER_AUTH_URL=http://localhost:3000 pnpm dev`. Commit via bash **heredoc** (`git commit -F - <<'EOF'`), not PowerShell `@'...'@`. drizzle-kit needs `DOTENV_CONFIG_PATH=.env.local`; `push` needs a TTY → use `scripts/apply-sql-migration.ts`. Vercel env changes need a **redeploy**. Operational scripts in `scripts/`: `preflight-migration-check`, `apply-sql-migration`, `encrypt-existing-tokens`, `inspect-state`, `test-youtube-credential`.
+
+---
+
+## 0.2 — Session 3 update (2026-06-08): killed the silent failures + Meta version bump
+
+**Build + 66 tests green** (added 1 test), verified locally — **pending commit/deploy.** Package manager is **pnpm**. Driven by an adversarially-verified code audit (16 confirmed silent-failure / observability findings).
+
+**Meta Graph API v19.0 → v25.0 (was actively breaking).** v19.0 was sunset 2026-05-21, so every FB/IG call was hitting a dead version. Centralized into **`src/lib/meta-graph.ts`** (`META_GRAPH_VERSION = "v25.0"`, `META_GRAPH_BASE`, `META_DIALOG_BASE`); all 11 hardcoded sites (oauth-config, meta-pages, facebook/instagram publishers, callback) now import it. **Next bump = edit one constant** (v20.0 deprecates 2026-09-24).
+
+**Silent failures fixed — the system now FAILS VISIBLY instead of recording phantom successes:**
+- **Dashboard "Needs attention" banner** — shows failed-post count + needs-reconnect-account count the moment you open the app. Previously a post that failed at 2am just silently vanished from the counts. (`dashboard/page.tsx`)
+- **Publishers no longer fake success:** TikTok poll-timeout now throws **non-retryable** (was recording `published` with a null URL; non-retryable avoids a duplicate re-upload); YouTube Shorts now guards a missing video id (mirrors longform); Facebook Reels now polls processing status and throws on an explicit `error` (conservative — see caveat below).
+- **TikTok status-poll** now tolerates a single transient timeout instead of tearing down the whole publish (mirrors Instagram).
+- **Token decrypt failure → needs-reconnect.** A lost/rotated `TOKEN_ENC_KEY` now flags the connection and throws non-retryable (was a cryptic, retryable "post failed" ×3 while the UI showed the account healthy). Covered by a new test. (`token-refresh.ts`)
+- **Cron resilience:** eager `getConfig()` probe at the top of the dispatcher (a bad `TOKEN_ENC_KEY` now 500s the run visibly instead of failing per-post); per-row failure-writes wrapped so one DB blip can't abort the batch and strand rows in `publishing`; each GET stage isolated. **Claim/lock/retry semantics untouched.**
+- **Logging added to previously-silent swallows:** Meta `/me/accounts` failures (were misreported as "you didn't tick a Page"); the callback `fetchProfiles` empty catch + non-ok branches; `select-page` DB save (now only clears the pick cookie on a confirmed save). 
+- **Tube "published but degraded" notes:** playlist-add and custom-thumbnail failures now surface a non-fatal amber note on the published row (the UI gate was relaxed to show notes on published rows, not just failed).
+
+**⚠️ One item needs a LIVE check:** the **Facebook Reels** processing-status poll was written conservatively because Meta's status-field shape varies by API version and couldn't be confirmed from docs. It only throws on an unambiguous `error` and otherwise returns success on timeout (= old behavior), so worst case is a little latency, never a false failure — **but confirm the `status.video_status` / `publishing_phase` field shape with one real FB Reel post** and tighten if needed (`publishers/facebook.ts`).
+
+**⚠️ Operational, needs YOU:** **back up `TOKEN_ENC_KEY`** into a password manager (it lives only in Vercel env; losing OR rotating it = reconnect every platform — see §0 and the rotation procedure there).
 
 ---
 

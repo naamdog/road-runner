@@ -1,4 +1,5 @@
 import type { Platform } from "./platforms";
+import { META_GRAPH_BASE, META_DIALOG_BASE } from "./meta-graph";
 
 export interface OAuthConfig {
   /** Display name. */
@@ -38,8 +39,8 @@ export const OAUTH_CONFIG: Record<Platform, OAuthConfig> = {
   },
   instagram: {
     name: "Instagram",
-    authUrl: "https://www.facebook.com/v19.0/dialog/oauth",
-    tokenUrl: "https://graph.facebook.com/v19.0/oauth/access_token",
+    authUrl: `${META_DIALOG_BASE}/dialog/oauth`,
+    tokenUrl: `${META_GRAPH_BASE}/oauth/access_token`,
     // Meta deprecated instagram_basic / instagram_content_publish as direct
     // OAuth scopes in Login for Business. The Instagram Business account is
     // now reached via the linked Page's access token.
@@ -73,8 +74,8 @@ export const OAUTH_CONFIG: Record<Platform, OAuthConfig> = {
   },
   facebook: {
     name: "Facebook",
-    authUrl: "https://www.facebook.com/v19.0/dialog/oauth",
-    tokenUrl: "https://graph.facebook.com/v19.0/oauth/access_token",
+    authUrl: `${META_DIALOG_BASE}/dialog/oauth`,
+    tokenUrl: `${META_GRAPH_BASE}/oauth/access_token`,
     scopes: ["pages_show_list", "pages_manage_posts", "pages_read_engagement"],
     clientIdEnv: "META_CLIENT_ID",
     clientSecretEnv: "META_CLIENT_SECRET",

@@ -6,6 +6,7 @@ import { publishers, PublisherError } from "@/lib/publishers";
 import { publishYouTubeLongform } from "@/lib/publishers/youtube-longform";
 import { ensureFreshAccessToken } from "@/lib/token-refresh";
 import { decryptSecret } from "@/lib/crypto";
+import { getConfig } from "@/lib/config";
 import { createLogger } from "@/lib/logger";
 import {
   nextAttemptAt,
@@ -100,10 +101,50 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Fail the whole run loudly (and visibly, as a 500 in Vercel's cron log) if the
+  // environment is misconfigured — e.g. a missing/rotated TOKEN_ENC_KEY. Without
+  // this, config validation first fires deep inside per-row token decryption and
+  // surfaces only as generic per-post failures.
+  try {
+    getConfig();
+  } catch (err) {
+    log.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "CONFIG INVALID — fix TOKEN_ENC_KEY / env vars; aborting cron run"
+    );
+    return NextResponse.json({ error: "config-invalid" }, { status: 500 });
+  }
+
   const now = new Date();
-  const reaped = await reapStale(now);
-  const shortResults = await processShortForm(now);
-  const tubeResults = await processTubeRunner(now);
+
+  // Each stage is isolated: a throw in one (e.g. a DB blip in a claim tx) must
+  // not 500 the whole invocation or skip the stages after it.
+  const emptyStage = {
+    processed: 0,
+    counts: { succeeded: 0, retried: 0, failed: 0 },
+    results: [] as Array<{ id: string; ok: boolean; error?: string }>,
+  };
+
+  let reaped = { short: 0, tube: 0 };
+  try {
+    reaped = await reapStale(now);
+  } catch (err) {
+    log.error({ err: err instanceof Error ? err.message : String(err) }, "reapStale failed");
+  }
+
+  let shortResults: Awaited<ReturnType<typeof processShortForm>> = emptyStage;
+  try {
+    shortResults = await processShortForm(now);
+  } catch (err) {
+    log.error({ err: err instanceof Error ? err.message : String(err) }, "processShortForm failed");
+  }
+
+  let tubeResults: Awaited<ReturnType<typeof processTubeRunner>> = emptyStage;
+  try {
+    tubeResults = await processTubeRunner(now);
+  } catch (err) {
+    log.error({ err: err instanceof Error ? err.message : String(err) }, "processTubeRunner failed");
+  }
 
   log.info(
     {
@@ -302,17 +343,32 @@ async function processShortForm(now: Date) {
       const exhausted = newAttempts >= MAX_ATTEMPTS;
       const terminal = !retryable || exhausted;
 
-      await db
-        .update(postTarget)
-        .set({
-          status: terminal ? "failed" : "scheduled",
-          lastError: error.slice(0, 1000),
-          nextAttemptAt: terminal
-            ? null
-            : nextAttemptAt(SHORT_BASE_MS, SHORT_CAP_MS, newAttempts),
-          updatedAt: new Date(),
-        })
-        .where(eq(postTarget.id, row.id));
+      // Wrap the failure-recording write (mirroring the finalize path): if this
+      // single update throws, it must not abort the whole batch and leave the
+      // other claimed rows stranded in 'publishing'. The reaper recovers the row.
+      try {
+        await withRetry(() =>
+          db
+            .update(postTarget)
+            .set({
+              status: terminal ? "failed" : "scheduled",
+              lastError: error.slice(0, 1000),
+              nextAttemptAt: terminal
+                ? null
+                : nextAttemptAt(SHORT_BASE_MS, SHORT_CAP_MS, newAttempts),
+              updatedAt: new Date(),
+            })
+            .where(eq(postTarget.id, row.id))
+        );
+      } catch (writeErr) {
+        log.error(
+          {
+            targetId: row.id,
+            err: writeErr instanceof Error ? writeErr.message : String(writeErr),
+          },
+          "failed to record short-form failure status; reaper will recover the row"
+        );
+      }
 
       if (terminal) counts.failed++;
       else counts.retried++;
@@ -456,6 +512,23 @@ async function processTubeRunner(now: Date) {
         playlistId: row.playlistId,
       });
 
+      // Surface non-fatal "published but degraded" outcomes — the playlist add
+      // or custom thumbnail silently failed — so the operator isn't left
+      // believing everything worked. Status stays "published"; the note rides on
+      // lastError (the tube list shows it for published rows too).
+      const degraded: string[] = [];
+      if (row.playlistId && result.addedToPlaylist === false) {
+        degraded.push("adding to the playlist failed");
+      }
+      if (row.thumbnailUrl && result.thumbnailSet === false) {
+        degraded.push(
+          "the custom thumbnail was not set (the channel may need verification)"
+        );
+      }
+      const publishNote = degraded.length
+        ? `Published, but ${degraded.join(" and ")}. Fix it manually on YouTube.`
+        : null;
+
       // Publish SUCCEEDED — finalize with retry; a DB blip must not reschedule
       // (that would re-upload a duplicate video). On persistent failure, mark
       // failed-with-note so the reaper won't re-publish.
@@ -468,7 +541,7 @@ async function processTubeRunner(now: Date) {
               publishedUrl: result.videoUrl,
               publishedAt: new Date(),
               youtubeVideoId: result.videoId,
-              lastError: null,
+              lastError: publishNote,
               updatedAt: new Date(),
             })
             .where(eq(tubePost.id, row.id))
@@ -516,17 +589,31 @@ async function processTubeRunner(now: Date) {
       const exhausted = newAttempts >= MAX_ATTEMPTS;
       const terminal = !retryable || exhausted;
 
-      await db
-        .update(tubePost)
-        .set({
-          status: terminal ? "failed" : "scheduled",
-          lastError: error.slice(0, 1000),
-          nextAttemptAt: terminal
-            ? null
-            : nextAttemptAt(TUBE_BASE_MS, TUBE_CAP_MS, newAttempts),
-          updatedAt: new Date(),
-        })
-        .where(eq(tubePost.id, row.id));
+      // Wrap the failure-recording write so one row's DB blip can't abort the
+      // batch and strand other claimed rows in 'publishing' (the reaper recovers).
+      try {
+        await withRetry(() =>
+          db
+            .update(tubePost)
+            .set({
+              status: terminal ? "failed" : "scheduled",
+              lastError: error.slice(0, 1000),
+              nextAttemptAt: terminal
+                ? null
+                : nextAttemptAt(TUBE_BASE_MS, TUBE_CAP_MS, newAttempts),
+              updatedAt: new Date(),
+            })
+            .where(eq(tubePost.id, row.id))
+        );
+      } catch (writeErr) {
+        log.error(
+          {
+            tubePostId: row.id,
+            err: writeErr instanceof Error ? writeErr.message : String(writeErr),
+          },
+          "failed to record tube failure status; reaper will recover the row"
+        );
+      }
 
       if (terminal) counts.failed++;
       else counts.retried++;

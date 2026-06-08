@@ -1,6 +1,7 @@
 import type { Publisher } from "./types";
 import { PublisherError } from "./types";
 import { fetchWithTimeout } from "./http";
+import { META_GRAPH_BASE } from "@/lib/meta-graph";
 
 /**
  * Instagram Reels publisher (via Instagram Graph API).
@@ -34,7 +35,7 @@ export const publishInstagram: Publisher = async ({
 
   // 1. Create container
   const containerRes = await fetchWithTimeout(
-    `https://graph.facebook.com/v19.0/${igUserId}/media`,
+    `${META_GRAPH_BASE}/${igUserId}/media`,
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -66,7 +67,7 @@ export const publishInstagram: Publisher = async ({
     let statusRes: Response;
     try {
       statusRes = await fetchWithTimeout(
-        `https://graph.facebook.com/v19.0/${creationId}?fields=status_code&access_token=${accessToken}`,
+        `${META_GRAPH_BASE}/${creationId}?fields=status_code&access_token=${accessToken}`,
         undefined,
         15000
       );
@@ -86,7 +87,7 @@ export const publishInstagram: Publisher = async ({
 
   // 3. Publish
   const publishRes = await fetchWithTimeout(
-    `https://graph.facebook.com/v19.0/${igUserId}/media_publish`,
+    `${META_GRAPH_BASE}/${igUserId}/media_publish`,
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },

@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { decryptSecret, encryptSecret } from "./crypto";
+import { decryptSecret, encryptSecret, isEncrypted } from "./crypto";
 import { db } from "./db";
 import { connection } from "./db/schema";
 import { createLogger } from "./logger";
@@ -28,8 +28,42 @@ export async function ensureFreshAccessToken(conn: {
   accessTokenExpiresAt: Date | null;
   metadata: Record<string, unknown> | null;
 }): Promise<string> {
-  const access = decryptSecret(conn.accessToken);
-  const refresh = decryptSecret(conn.refreshToken);
+  // A decrypt failure here almost always means TOKEN_ENC_KEY changed (rotated or
+  // mistyped): every stored ciphertext was sealed with the old key, so AES-GCM
+  // auth fails. Without this guard the raw crypto error escapes as a generic,
+  // retryable "post failed" (3 wasted attempts) and the connection is never
+  // flagged — so the operator sees cryptic failures while the UI shows the
+  // account as healthy. Flag it as needs-reconnect instead.
+  let access: string | null;
+  let refresh: string | null;
+  try {
+    access = decryptSecret(conn.accessToken);
+    refresh = decryptSecret(conn.refreshToken);
+  } catch {
+    await markNeedsReconnect(
+      conn.id,
+      "Stored token could not be decrypted — the encryption key (TOKEN_ENC_KEY) may have changed. Please reconnect this account."
+    );
+    throw new PublisherError(
+      `Connection needs reconnect: ${conn.platform}`,
+      false
+    );
+  }
+
+  // A stored token that is NOT in enc:v1: format is either un-migrated legacy
+  // plaintext or a ciphertext corrupted at rest (its prefix was lost, so it
+  // silently bypassed AES-GCM auth). In steady state every token is encrypted,
+  // so this should never fire — log it if it does so the corruption is visible.
+  if (
+    process.env.NODE_ENV === "production" &&
+    conn.accessToken &&
+    !isEncrypted(conn.accessToken)
+  ) {
+    log.warn(
+      { connectionId: conn.id, platform: conn.platform },
+      "stored access token is not in enc:v1: format (legacy plaintext or corrupted at rest)"
+    );
+  }
 
   // Still fresh (or unknown expiry): use the current token as-is.
   if (

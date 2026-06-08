@@ -25,8 +25,14 @@ const refreshers = mocks.refreshers as Partial<Record<string, TokenRefresher>>;
 // crypto: deterministic, reversible stand-ins so we can assert exactly what was
 // decrypted on the way in and what was encrypted on the way out.
 vi.mock("../crypto", () => ({
-  decryptSecret: (v: string | null | undefined): string | null =>
-    v == null ? null : String(v).replace(/^enc:/, ""),
+  decryptSecret: (v: string | null | undefined): string | null => {
+    // Simulate an AES-GCM auth failure (e.g. TOKEN_ENC_KEY rotated) for any
+    // value sealed with the "enc:throw" sentinel.
+    if (typeof v === "string" && v.startsWith("enc:throw")) {
+      throw new Error("Unsupported state or unable to authenticate data");
+    }
+    return v == null ? null : String(v).replace(/^enc:/, "");
+  },
   encryptSecret: (v: string): string => "enc:" + v,
   isEncrypted: (v: unknown): boolean =>
     typeof v === "string" && v.startsWith("enc:"),
@@ -286,6 +292,30 @@ describe("ensureFreshAccessToken", () => {
     const payload = setSpy.mock.calls[0][0] as Record<string, unknown>;
     expect(payload.needsReconnect).toBe(true);
     expect(payload.lastRefreshError).toContain("Missing refresh token");
+  });
+
+  it("(g) when a stored token can't be decrypted (TOKEN_ENC_KEY rotated/lost): flags needsReconnect and throws non-retryable — never a generic retryable failure", async () => {
+    // Even on the "fresh" path (future expiry), the decrypt guard must fire
+    // before anything else, so this is the broadest case.
+    const conn = makeConn({
+      accessTokenExpiresAt: minutesFromNow(60),
+      accessToken: "enc:throw-access", // sealed with the old key -> auth fails
+      refreshToken: "enc:refresh-1",
+    });
+
+    const err = await ensureFreshAccessToken(conn).catch((e) => e);
+
+    // Must NOT escape as a raw crypto error (which the dispatcher would treat as
+    // retryable and burn 3 attempts on while the UI shows the account healthy).
+    expect(err).toBeInstanceOf(PublisherError);
+    expect(err.retryable).toBe(false);
+
+    // Flags the connection so the existing "needs reconnect" UI lights up, with a
+    // human-readable reason (no AES jargon).
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    const payload = setSpy.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.needsReconnect).toBe(true);
+    expect(String(payload.lastRefreshError)).toContain("encryption key");
   });
 
   it("(f) fresh/unknown-expiry but access token is null: throws a non-retryable 'missing access token' error", async () => {

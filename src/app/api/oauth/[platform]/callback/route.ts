@@ -5,6 +5,7 @@ import { OAUTH_CONFIG, getRedirectUri } from "@/lib/oauth-config";
 import { verifyState } from "@/lib/oauth-state";
 import { getBaseUrl } from "@/lib/utils";
 import { encryptSecret } from "@/lib/crypto";
+import { META_GRAPH_BASE } from "@/lib/meta-graph";
 import { createLogger } from "@/lib/logger";
 import {
   META_PICK_COOKIE,
@@ -99,7 +100,7 @@ export async function GET(
   if (platform === "facebook" || platform === "instagram") {
     try {
       const longRes = await fetch(
-        `https://graph.facebook.com/v19.0/oauth/access_token?` +
+        `${META_GRAPH_BASE}/oauth/access_token?` +
           new URLSearchParams({
             grant_type: "fb_exchange_token",
             client_id: clientId,
@@ -222,6 +223,7 @@ async function fetchProfiles(
               })
             );
         }
+        log.warn({ platform, status: res.status }, "profile lookup returned non-ok");
         break;
       }
       case "linkedin": {
@@ -247,6 +249,7 @@ async function fetchProfiles(
             },
           ];
         }
+        log.warn({ platform, status: res.status }, "profile lookup returned non-ok");
         break;
       }
       case "tiktok": {
@@ -269,6 +272,7 @@ async function fetchProfiles(
             ];
           }
         }
+        log.warn({ platform, status: res.status }, "profile lookup returned non-ok");
         break;
       }
       case "facebook":
@@ -276,8 +280,13 @@ async function fetchProfiles(
       case "instagram":
         return fetchMetaProfiles("instagram", accessToken);
     }
-  } catch {
-    // fall through to empty list
+  } catch (err) {
+    // A thrown network/parse error here would otherwise be reported to the
+    // operator as "no accounts found" (a permissions problem) with no trace.
+    log.error(
+      { platform, err: err instanceof Error ? err.message : String(err) },
+      "profile fetch threw"
+    );
   }
   return [];
 }
