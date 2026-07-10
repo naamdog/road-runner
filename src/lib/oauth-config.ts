@@ -34,7 +34,11 @@ export const OAUTH_CONFIG: Record<Platform, OAuthConfig> = {
     ],
     clientIdEnv: "GOOGLE_CLIENT_ID",
     clientSecretEnv: "GOOGLE_CLIENT_SECRET",
-    extraAuthParams: { access_type: "offline", prompt: "consent" },
+    // `select_account` forces Google's account/brand chooser every time, so
+    // whoever reconnects can explicitly pick the TEFL Heaven channel (incl. a
+    // Brand Account) instead of Google silently reusing a cached personal login
+    // and connecting the wrong channel. Lesson carried over from Switchboard.
+    extraAuthParams: { access_type: "offline", prompt: "select_account consent" },
     pkce: false,
   },
   instagram: {

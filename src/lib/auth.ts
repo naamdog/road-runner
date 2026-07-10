@@ -18,7 +18,9 @@ export const auth = betterAuth({
     schema: { user, session, account, verification },
   }),
   emailAndPassword: {
-    enabled: true,
+    // Disabled, not deleted: flip ENABLE_EMAIL_PASSWORD_AUTH=true to bring
+    // public/paid signup back later with no code change.
+    enabled: getConfig().enableEmailPasswordAuth,
     autoSignIn: true,
     minPasswordLength: 8,
     maxPasswordLength: 128,
@@ -30,6 +32,15 @@ export const auth = betterAuth({
   emailVerification: {
     sendVerificationEmail: async ({ user, url }) => {
       await sendVerificationEmail({ to: user.email, url });
+    },
+  },
+  socialProviders: {
+    google: {
+      clientId: getConfig().google.clientId,
+      clientSecret: getConfig().google.clientSecret,
+      // Enforced server-side against the verified id-token `hd` claim, not
+      // just a UI hint — rejects sign-in outright if it doesn't match.
+      hd: getConfig().googleAllowedDomain,
     },
   },
   session: {

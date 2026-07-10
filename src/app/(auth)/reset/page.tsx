@@ -1,17 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { authClient } from "@/lib/auth-client";
+
+// Mirrors the server-side ENABLE_EMAIL_PASSWORD_AUTH gate in src/lib/config.ts.
+const EMAIL_PASSWORD_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_EMAIL_PASSWORD_AUTH === "true";
 
 export default function ResetPage() {
+  const router = useRouter();
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    if (!EMAIL_PASSWORD_ENABLED) router.replace("/login");
+  }, [router]);
+
+  if (!EMAIL_PASSWORD_ENABLED) return null;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

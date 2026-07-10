@@ -49,6 +49,8 @@ const ALL_CONFIG_KEYS = [
   "EMAIL_FROM",
   "REQUIRE_EMAIL_VERIFICATION",
   "LOG_LEVEL",
+  "GOOGLE_ALLOWED_DOMAIN",
+  "ENABLE_EMAIL_PASSWORD_AUTH",
 ] as const;
 
 /**
@@ -108,6 +110,9 @@ describe("getConfig — valid env", () => {
     expect(cfg.cronSecret).toBeNull();
     expect(cfg.requireEmailVerification).toBe(false);
     expect(cfg.logLevel).toBe("info");
+    // Google-only, TEFL-internal defaults.
+    expect(cfg.googleAllowedDomain).toBe("teflheaven.com");
+    expect(cfg.enableEmailPasswordAuth).toBe(false);
   });
 
   it("decodes TOKEN_ENC_KEY to a 32-byte Buffer", async () => {
@@ -239,6 +244,46 @@ describe("getConfig — TOKEN_ENC_KEY validation", () => {
     });
     expect(() => getConfig()).not.toThrow();
     expect(getConfig().tokenEncKey.length).toBe(32);
+  });
+});
+
+describe("googleAllowedDomain", () => {
+  it('defaults to "teflheaven.com" when absent', async () => {
+    const mod = await loadFreshConfig(fullValidEnv());
+    expect(mod.getConfig().googleAllowedDomain).toBe("teflheaven.com");
+  });
+
+  it("uses GOOGLE_ALLOWED_DOMAIN when present, overriding the default", async () => {
+    const mod = await loadFreshConfig({
+      ...fullValidEnv(),
+      GOOGLE_ALLOWED_DOMAIN: "example.com",
+    });
+    expect(mod.getConfig().googleAllowedDomain).toBe("example.com");
+  });
+});
+
+describe("enableEmailPasswordAuth", () => {
+  it('is true only when ENABLE_EMAIL_PASSWORD_AUTH === "true"', async () => {
+    const mod = await loadFreshConfig({
+      ...fullValidEnv(),
+      ENABLE_EMAIL_PASSWORD_AUTH: "true",
+    });
+    expect(mod.getConfig().enableEmailPasswordAuth).toBe(true);
+  });
+
+  it("is false when absent (Google-only by default)", async () => {
+    const mod = await loadFreshConfig(fullValidEnv());
+    expect(mod.getConfig().enableEmailPasswordAuth).toBe(false);
+  });
+
+  it('is false for any non-"true" value (e.g. "false", "1", "TRUE")', async () => {
+    for (const value of ["false", "1", "TRUE", "yes", ""]) {
+      const mod = await loadFreshConfig({
+        ...fullValidEnv(),
+        ENABLE_EMAIL_PASSWORD_AUTH: value,
+      });
+      expect(mod.getConfig().enableEmailPasswordAuth).toBe(false);
+    }
   });
 });
 

@@ -22,6 +22,16 @@ export interface AppConfig {
   email: { resendApiKey: string; from: string } | null;
   requireEmailVerification: boolean;
   logLevel: string;
+  /** Google Workspace hosted domain required for Google sign-in (e.g. "teflheaven.com"). */
+  googleAllowedDomain: string;
+  /**
+   * Whether the email+password sign-in/sign-up path is active. Defaults to
+   * `false` (Google-only, TEFL-internal use). A single flag flip
+   * (`ENABLE_EMAIL_PASSWORD_AUTH=true`) re-enables it for public/paid use
+   * later without any code changes — the email+password code is disabled,
+   * not deleted.
+   */
+  enableEmailPasswordAuth: boolean;
 }
 
 const requiredSchema = z.object({
@@ -129,6 +139,8 @@ function loadConfig(): AppConfig {
     email,
     requireEmailVerification: env.REQUIRE_EMAIL_VERIFICATION === "true",
     logLevel: env.LOG_LEVEL || "info",
+    googleAllowedDomain: env.GOOGLE_ALLOWED_DOMAIN || "teflheaven.com",
+    enableEmailPasswordAuth: env.ENABLE_EMAIL_PASSWORD_AUTH === "true",
   };
 }
 
