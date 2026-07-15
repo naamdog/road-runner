@@ -53,10 +53,12 @@ export async function GET(
   const baseUrl = getBaseUrl();
   const redirectUri = getRedirectUri(platform as Platform, baseUrl);
 
-  // Exchange code for tokens
+  // Exchange code for tokens. TikTok requires the client identifier as
+  // `client_key` (not `client_id`); `client_secret` stays standard. Every other
+  // provider uses `client_id`.
   const tokenBody = new URLSearchParams({
     code,
-    client_id: clientId,
+    [cfg.clientIdParam ?? "client_id"]: clientId,
     client_secret: clientSecret,
     redirect_uri: redirectUri,
     grant_type: "authorization_code",

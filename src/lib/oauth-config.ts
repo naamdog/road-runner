@@ -14,6 +14,17 @@ export interface OAuthConfig {
   clientIdEnv: string;
   /** Client secret env var name. */
   clientSecretEnv: string;
+  /**
+   * The query-param name for the client identifier. Standard OAuth is
+   * `client_id`, but TikTok is non-standard and requires `client_key` on BOTH
+   * the authorize URL and the token exchange. Defaults to `client_id`.
+   */
+  clientIdParam?: string;
+  /**
+   * Separator between requested scopes. Standard OAuth is a space, but TikTok
+   * requires a comma. Defaults to a space.
+   */
+  scopeSeparator?: string;
   /** Additional auth URL parameters. */
   extraAuthParams?: Record<string, string>;
   /** PKCE required? */
@@ -65,6 +76,12 @@ export const OAUTH_CONFIG: Record<Platform, OAuthConfig> = {
     scopes: ["user.info.basic", "video.upload", "video.publish"],
     clientIdEnv: "TIKTOK_CLIENT_KEY",
     clientSecretEnv: "TIKTOK_CLIENT_SECRET",
+    // TikTok deviates from standard OAuth: the client identifier param is
+    // `client_key` (not `client_id`) on both authorize + token, and scopes are
+    // comma-separated (not space-separated). Without these it returns
+    // `param_error` / `error_type=client_key` at the authorize step.
+    clientIdParam: "client_key",
+    scopeSeparator: ",",
     pkce: true,
   },
   linkedin: {

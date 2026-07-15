@@ -66,10 +66,12 @@ export async function POST(
   });
 
   const url = new URL(cfg.authUrl);
-  url.searchParams.set("client_id", clientId);
+  // TikTok requires `client_key` (not `client_id`) and comma-separated scopes;
+  // every other provider uses the standard `client_id` + space-separated scopes.
+  url.searchParams.set(cfg.clientIdParam ?? "client_id", clientId);
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", cfg.scopes.join(" "));
+  url.searchParams.set("scope", cfg.scopes.join(cfg.scopeSeparator ?? " "));
   url.searchParams.set("state", state);
 
   if (cfg.pkce) {
