@@ -269,26 +269,34 @@ async function fetchProfiles(
         break;
       }
       case "tiktok": {
+        // Only request fields covered by the `user.info.basic` scope. `username`
+        // (and profile_deep_link/bio/is_verified) need `user.info.profile`, which
+        // we don't request — asking for it makes TikTok reject the WHOLE call with
+        // a 401, so no account is ever returned.
         const res = await fetch(
-          "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,username",
+          "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name",
           { headers: { Authorization: `Bearer ${accessToken}` } }
         );
+        const bodyText = await res.text();
         if (res.ok) {
-          const j = await res.json();
+          const j = JSON.parse(bodyText);
           const u = j.data?.user;
           if (u) {
             return [
               {
                 accountId: u.open_id,
                 accountName: u.display_name || "TikTok",
-                accountHandle: u.username || null,
+                accountHandle: null,
                 avatarUrl: u.avatar_url || null,
                 metadata: { unionId: u.union_id },
               },
             ];
           }
         }
-        log.warn({ platform, status: res.status }, "profile lookup returned non-ok");
+        log.warn(
+          { platform, status: res.status, body: bodyText.slice(0, 300) },
+          "profile lookup returned non-ok"
+        );
         break;
       }
       case "facebook":
