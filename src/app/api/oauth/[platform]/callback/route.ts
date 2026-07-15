@@ -74,17 +74,25 @@ export async function GET(
     scope?: string;
     [k: string]: unknown;
   };
+  let rawTokenBody = "";
   try {
     const res = await fetch(cfg.tokenUrl, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: tokenBody.toString(),
     });
+    // Read once as text so both the error branch and a "200 with an error
+    // object" (TikTok returns provider errors inside a 200) surface the actual
+    // provider message instead of a generic one.
+    rawTokenBody = await res.text();
     if (!res.ok) {
-      const text = await res.text();
-      return redirectWithError(`Token exchange failed: ${text.slice(0, 200)}`);
+      log.error(
+        { platform, status: res.status, body: rawTokenBody.slice(0, 400) },
+        "token exchange non-2xx"
+      );
+      return redirectWithError(`Token exchange failed: ${rawTokenBody.slice(0, 200)}`);
     }
-    tokens = await res.json();
+    tokens = JSON.parse(rawTokenBody);
   } catch (err) {
     return redirectWithError(
       err instanceof Error ? err.message : "Token exchange failed"
@@ -92,7 +100,13 @@ export async function GET(
   }
 
   if (!tokens.access_token) {
-    return redirectWithError("No access token returned");
+    log.error(
+      { platform, body: rawTokenBody.slice(0, 400) },
+      "token exchange returned no access_token"
+    );
+    return redirectWithError(
+      `No access token. Provider response: ${rawTokenBody.slice(0, 160)}`
+    );
   }
 
   // For Meta, exchange short-lived user token for a long-lived one BEFORE
