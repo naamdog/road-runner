@@ -124,7 +124,9 @@ export default async function DashboardPage() {
               <p className="text-sm text-muted-foreground">Nothing scheduled yet.</p>
             </div>
           ) : (
-            firstGroups.map(([date, posts]) => <DayGroup key={date} date={date} posts={posts} />)
+            firstGroups.map(([date, posts]) => (
+              <DayGroup key={date} date={date} posts={posts} eager />
+            ))
           )}
         </Card>
       </div>

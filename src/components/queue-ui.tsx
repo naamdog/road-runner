@@ -38,13 +38,38 @@ export function PlatformChip({ platform, size = "sm" }: { platform: Platform; si
   );
 }
 
-/** Video preview. Blotato re-hosts every asset, so these are stable public URLs. */
-export function Thumb({ url, className }: { url: string | null; className?: string }) {
+/**
+ * Video preview.
+ *
+ * `eager` decides whether the browser actually fetches the clip. The full
+ * schedule renders ~200 rows, and letting every one preload froze the tab — so
+ * only short lists (the dashboard's next few days) load frames; everywhere else
+ * shows a cheap placeholder until asked.
+ */
+export function Thumb({
+  url, className, eager = false,
+}: { url: string | null; className?: string; eager?: boolean }) {
   if (!url) {
     return (
       <div className={cn("bg-surface-3 border border-border grid place-items-center text-[10px] text-muted-foreground", className)}>
         no video
       </div>
+    );
+  }
+  if (!eager) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Open video"
+        className={cn(
+          "bg-surface-3 border border-border grid place-items-center group transition-colors hover:bg-surface-2 hover:border-border-strong",
+          className
+        )}
+      >
+        <PlayIcon />
+      </a>
     );
   }
   // Blotato serves media as application/octet-stream, so the browser won't decode
@@ -62,11 +87,21 @@ export function Thumb({ url, className }: { url: string | null; className?: stri
   );
 }
 
+function PlayIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5 text-muted-foreground group-hover:text-brand transition-colors" aria-hidden>
+      <path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.53.85l10-6.5a1 1 0 0 0 0-1.7l-10-6.5A1 1 0 0 0 8 5.5Z" />
+    </svg>
+  );
+}
+
 /**
  * One dated group of posts. A single video fans out to several platforms at the
  * same minute, so they're grouped by video rather than listed four times.
  */
-export function DayGroup({ date, posts }: { date: string; posts: ScheduledPost[] }) {
+export function DayGroup({
+  date, posts, eager = false,
+}: { date: string; posts: ScheduledPost[]; eager?: boolean }) {
   const byVideo = new Map<string, ScheduledPost[]>();
   for (const p of posts) {
     const k = videoKey(p);
@@ -87,7 +122,7 @@ export function DayGroup({ date, posts }: { date: string; posts: ScheduledPost[]
           const first = group[0];
           return (
             <li key={first.id} className="flex gap-4 px-5 py-4">
-              <Thumb url={first.mediaUrl} className="w-16 h-28 rounded-md shrink-0" />
+              <Thumb url={first.mediaUrl} eager={eager} className="w-16 h-28 rounded-md shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm text-foreground line-clamp-3 leading-relaxed">{first.text}</p>
                 <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
