@@ -66,12 +66,25 @@ export function VideoThumb({
           className
         )}
       >
+        {/*
+          `preload="metadata"` loads the header but never decodes a frame, so the
+          box stays blank. Seeking once metadata arrives forces exactly one frame
+          to decode — a couple of extra range requests, and a real poster.
+        */}
         <video
-          src={`${src}#t=0.5`}
+          src={src}
           muted
           playsInline
           preload="metadata"
           tabIndex={-1}
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget;
+            try {
+              if (v.currentTime === 0) v.currentTime = Math.min(0.5, (v.duration || 1) / 2);
+            } catch {
+              /* seeking unsupported — the play affordance still works */
+            }
+          }}
           className="absolute inset-0 size-full object-cover pointer-events-none"
         />
         <span className="absolute inset-0 grid place-items-center bg-black/25 group-hover:bg-black/10 transition-colors">
