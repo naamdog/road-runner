@@ -2,28 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard,
-  Plus,
-  CalendarDays,
-  Link2,
-  Settings,
-  Tv,
-  Users,
-} from "lucide-react";
+import { LayoutDashboard, CalendarDays, AlertTriangle, Link2, ExternalLink } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/compose", label: "New Short / Reel", icon: Plus, primary: true },
-  { href: "/tube", label: "YouTube Long Form", icon: Tv },
-  { href: "/scheduled", label: "Scheduled", icon: CalendarDays },
-  { href: "/connections", label: "Platform connections", icon: Link2 },
-  { href: "/brands", label: "Brands", icon: Users },
+  { href: "/schedule", label: "Schedule", icon: CalendarDays },
+  { href: "/failed", label: "Failed", icon: AlertTriangle },
+  { href: "/accounts", label: "Accounts", icon: Link2 },
 ];
-
-const secondary = [{ href: "/settings", label: "Settings", icon: Settings }];
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -35,66 +23,44 @@ export function Sidebar() {
         </Link>
       </div>
 
-      <nav className="flex-1 overflow-y-auto p-2.5 space-y-0.5">
+      <nav className="flex-1 p-3 space-y-0.5">
         {items.map((item) => {
           const Icon = item.icon;
           const active =
             pathname === item.href ||
             (item.href !== "/dashboard" && pathname.startsWith(item.href));
-          if (item.primary) {
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "mt-1 flex items-center gap-2 rounded-md bg-brand text-brand-foreground px-3 py-2 text-sm font-medium",
-                  "shadow-[0_0_0_1px_rgba(204,255,0,0.5),0_8px_24px_-12px_rgba(204,255,0,0.6)]",
-                  "hover:bg-brand-muted transition-colors"
-                )}
-              >
-                <Icon className="size-4" />
-                <span>{item.label}</span>
-              </Link>
-            );
-          }
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
+                "flex items-center gap-2.5 px-2.5 h-9 rounded-md text-sm transition-colors",
                 active
-                  ? "bg-surface-2 text-foreground border border-border"
-                  : "text-muted-foreground hover:text-foreground hover:bg-surface-2/70 border border-transparent"
+                  ? "bg-surface-2 text-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground hover:bg-surface-2/60"
               )}
             >
-              <Icon className="size-4" />
+              <Icon className="size-4 shrink-0" />
               <span>{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      <div className="p-2.5 border-t border-border/60 space-y-0.5">
-        {secondary.map((item) => {
-          const Icon = item.icon;
-          const active = pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
-                active
-                  ? "bg-surface-2 text-foreground border border-border"
-                  : "text-muted-foreground hover:text-foreground hover:bg-surface-2/70 border border-transparent"
-              )}
-            >
-              <Icon className="size-4" />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
+      {/* Publishing lives in Blotato now, so make the hand-off explicit. */}
+      <div className="p-3 border-t border-border/60">
+        <a
+          href="https://my.blotato.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2.5 px-2.5 h-9 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-surface-2/60 transition-colors"
+        >
+          <ExternalLink className="size-4 shrink-0" />
+          <span>Open Blotato</span>
+        </a>
+        <p className="px-2.5 pt-2 text-[11px] leading-relaxed text-subtle-foreground">
+          Blotato holds the connections and does the posting. Add or remove accounts there.
+        </p>
       </div>
     </aside>
   );

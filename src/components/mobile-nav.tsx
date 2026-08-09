@@ -5,12 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  Plus,
   CalendarDays,
+  AlertTriangle,
   Link2,
-  Settings,
-  Tv,
-  Users,
   Menu,
   X,
 } from "lucide-react";
@@ -19,12 +16,9 @@ import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/compose", label: "New Short / Reel", icon: Plus, primary: true },
-  { href: "/tube", label: "YouTube Long Form", icon: Tv },
-  { href: "/scheduled", label: "Scheduled", icon: CalendarDays },
-  { href: "/connections", label: "Platform connections", icon: Link2 },
-  { href: "/brands", label: "Brands", icon: Users },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/schedule", label: "Schedule", icon: CalendarDays },
+  { href: "/failed", label: "Failed", icon: AlertTriangle },
+  { href: "/accounts", label: "Accounts", icon: Link2 },
 ];
 
 export function MobileNav() {
@@ -78,18 +72,6 @@ export function MobileNav() {
                   pathname === item.href ||
                   (item.href !== "/dashboard" &&
                     pathname.startsWith(item.href));
-                if (item.primary) {
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="flex items-center gap-2 rounded-md bg-brand text-brand-foreground px-3 py-2.5 text-sm font-medium"
-                    >
-                      <Icon className="size-4" />
-                      <span>{item.label}</span>
-                    </Link>
-                  );
-                }
                 return (
                   <Link
                     key={item.href}
