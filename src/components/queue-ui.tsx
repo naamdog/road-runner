@@ -47,17 +47,18 @@ export function Thumb({ url, className }: { url: string | null; className?: stri
       </div>
     );
   }
-  // Blotato serves these as application/octet-stream, and a bare <video> then
-  // shows an empty box. The #t=0.1 fragment makes the browser seek to the first
-  // frame so the row gets a real thumbnail.
+  // Blotato serves media as application/octet-stream, so the browser won't decode
+  // it from the response header alone — an explicit <source type> is what makes
+  // the frame render. #t=0.1 then seeks just past the start so it isn't black.
   return (
     <video
-      src={`${url}#t=0.1`}
       muted
       playsInline
       preload="metadata"
       className={cn("object-cover bg-surface-3 border border-border", className)}
-    />
+    >
+      <source src={`${url}#t=0.1`} type="video/mp4" />
+    </video>
   );
 }
 
