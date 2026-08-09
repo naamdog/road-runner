@@ -39,15 +39,18 @@ export function PlatformChip({ platform, size = "sm" }: { platform: Platform; si
 }
 
 /**
- * Video preview.
+ * Video preview slot.
  *
- * `eager` decides whether the browser actually fetches the clip. The full
- * schedule renders ~200 rows, and letting every one preload froze the tab — so
- * only short lists (the dashboard's next few days) load frames; everywhere else
- * shows a cheap placeholder until asked.
+ * Deliberately NOT a <video>. Blotato serves clips as application/octet-stream,
+ * and browsers can't honour `preload="metadata"` on that — they fetch the whole
+ * file. With clips of 60–150MB, even a handful of rows pulled hundreds of
+ * megabytes and locked the tab solid. So the list stays cheap: a play affordance
+ * that opens the real clip in a new tab on demand.
+ *
+ * `eager` is accepted so callers can express intent, but nothing preloads.
  */
 export function Thumb({
-  url, className, eager = false,
+  url, className,
 }: { url: string | null; className?: string; eager?: boolean }) {
   if (!url) {
     return (
@@ -56,34 +59,19 @@ export function Thumb({
       </div>
     );
   }
-  if (!eager) {
-    return (
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        title="Open video"
-        className={cn(
-          "bg-surface-3 border border-border grid place-items-center group transition-colors hover:bg-surface-2 hover:border-border-strong",
-          className
-        )}
-      >
-        <PlayIcon />
-      </a>
-    );
-  }
-  // Blotato serves media as application/octet-stream, so the browser won't decode
-  // it from the response header alone — an explicit <source type> is what makes
-  // the frame render. #t=0.1 then seeks just past the start so it isn't black.
   return (
-    <video
-      muted
-      playsInline
-      preload="metadata"
-      className={cn("object-cover bg-surface-3 border border-border", className)}
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Open video in a new tab"
+      className={cn(
+        "bg-surface-3 border border-border grid place-items-center group transition-colors hover:bg-surface-2 hover:border-border-strong",
+        className
+      )}
     >
-      <source src={`${url}#t=0.1`} type="video/mp4" />
-    </video>
+      <PlayIcon />
+    </a>
   );
 }
 
