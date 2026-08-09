@@ -71,8 +71,14 @@ export async function GET(req: NextRequest) {
   headers.set("Content-Type", "video/mp4"); // the whole point
   headers.set("Accept-Ranges", "bytes");
   headers.set("Content-Length", String(body.byteLength));
-  headers.set("Content-Range", `bytes ${start}-${last}/${total}`);
   headers.set("Cache-Control", "private, max-age=3600");
 
-  return new NextResponse(body, { status: 206, headers });
+  // Answering a plain GET with 206 + Content-Range is protocol-invalid, and
+  // Chrome drops it silently — which is why the element sat at readyState 0
+  // with no error. Only send 206 when a Range was actually asked for.
+  if (reqRange) {
+    headers.set("Content-Range", `bytes ${start}-${last}/${total}`);
+    return new NextResponse(body, { status: 206, headers });
+  }
+  return new NextResponse(body, { status: 200, headers });
 }
