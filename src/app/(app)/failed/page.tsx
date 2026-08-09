@@ -63,7 +63,7 @@ export default async function FailedPage() {
           <ul className="divide-y divide-border">
             {failed.map((f) => (
               <li key={f.id} className="flex gap-4 px-5 py-4">
-                <Thumb url={f.mediaUrl} className="w-12 h-20 rounded-md shrink-0" />
+                <Thumb url={f.mediaUrl} caption={f.text} className="w-12 h-20 rounded-md shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm line-clamp-2">{f.text}</p>
                   <div className="flex items-center gap-2 mt-2 flex-wrap">

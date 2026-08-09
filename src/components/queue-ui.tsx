@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AlertTriangle, ArrowUpRight } from "lucide-react";
 import { PLATFORM_COLOR, PLATFORM_LABEL, videoKey, type Platform, type ScheduledPost } from "@/lib/blotato";
 import { cn } from "@/lib/utils";
+import { VideoThumb } from "@/components/video-thumb";
 
 const LONDON = "Europe/London";
 
@@ -39,48 +40,14 @@ export function PlatformChip({ platform, size = "sm" }: { platform: Platform; si
 }
 
 /**
- * Video preview slot.
- *
- * Deliberately NOT a <video>. Blotato serves clips as application/octet-stream,
- * and browsers can't honour `preload="metadata"` on that — they fetch the whole
- * file. With clips of 60–150MB, even a handful of rows pulled hundreds of
- * megabytes and locked the tab solid. So the list stays cheap: a play affordance
- * that opens the real clip in a new tab on demand.
- *
- * `eager` is accepted so callers can express intent, but nothing preloads.
+ * Video preview slot — a real poster frame that opens a player on click.
+ * See `VideoThumb`: the bytes come through /api/media, which re-labels them as
+ * video/mp4 and forwards Range so a frame costs a few KB instead of the file.
  */
 export function Thumb({
-  url, className,
-}: { url: string | null; className?: string; eager?: boolean }) {
-  if (!url) {
-    return (
-      <div className={cn("bg-surface-3 border border-border grid place-items-center text-[10px] text-muted-foreground", className)}>
-        no video
-      </div>
-    );
-  }
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      title="Open video in a new tab"
-      className={cn(
-        "bg-surface-3 border border-border grid place-items-center group transition-colors hover:bg-surface-2 hover:border-border-strong",
-        className
-      )}
-    >
-      <PlayIcon />
-    </a>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-5 text-muted-foreground group-hover:text-brand transition-colors" aria-hidden>
-      <path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.53.85l10-6.5a1 1 0 0 0 0-1.7l-10-6.5A1 1 0 0 0 8 5.5Z" />
-    </svg>
-  );
+  url, className, caption,
+}: { url: string | null; className?: string; caption?: string; eager?: boolean }) {
+  return <VideoThumb url={url} className={className} caption={caption} />;
 }
 
 /**
@@ -110,7 +77,7 @@ export function DayGroup({
           const first = group[0];
           return (
             <li key={first.id} className="flex gap-4 px-5 py-4">
-              <Thumb url={first.mediaUrl} eager={eager} className="w-16 h-28 rounded-md shrink-0" />
+              <Thumb url={first.mediaUrl} caption={first.text} className="w-16 h-28 rounded-md shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm text-foreground line-clamp-3 leading-relaxed">{first.text}</p>
                 <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
