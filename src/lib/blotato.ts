@@ -157,7 +157,9 @@ export async function getOverview(): Promise<Overview> {
       accounts,
       schedule,
       failed: queue.filter((q) => q.state === "failed"),
-      videoCount: new Set(schedule.map((s) => s.mediaUrl ?? s.text)).size,
+      // Blotato re-hosts media per post, so the same clip has a different URL on
+      // each platform. Caption + time is what actually identifies one video.
+      videoCount: new Set(schedule.map(videoKey)).size,
       nextUp: nextUp.slice(0, 8),
       quotaUsed: schedule.length,
       quotaPct: Math.round((schedule.length / SCHEDULE_LIMIT) * 100),
@@ -171,6 +173,15 @@ export async function getOverview(): Promise<Overview> {
       error: e instanceof Error ? e.message : "Could not reach Blotato",
     };
   }
+}
+
+/**
+ * Identifies one underlying video. A single clip is posted to several platforms
+ * at the same minute; Blotato stores a separate copy per post, so the media URL
+ * can't be used to tell them apart — the caption and time can.
+ */
+export function videoKey(p: { text: string; scheduledAt: string }): string {
+  return `${p.scheduledAt}|${p.text}`;
 }
 
 export const PLATFORM_LABEL: Record<Platform, string> = {

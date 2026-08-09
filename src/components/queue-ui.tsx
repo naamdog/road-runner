@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, ArrowUpRight } from "lucide-react";
-import { PLATFORM_COLOR, PLATFORM_LABEL, type Platform, type ScheduledPost } from "@/lib/blotato";
+import { PLATFORM_COLOR, PLATFORM_LABEL, videoKey, type Platform, type ScheduledPost } from "@/lib/blotato";
 import { cn } from "@/lib/utils";
 
 const LONDON = "Europe/London";
@@ -47,9 +47,12 @@ export function Thumb({ url, className }: { url: string | null; className?: stri
       </div>
     );
   }
+  // Blotato serves these as application/octet-stream, and a bare <video> then
+  // shows an empty box. The #t=0.1 fragment makes the browser seek to the first
+  // frame so the row gets a real thumbnail.
   return (
     <video
-      src={url}
+      src={`${url}#t=0.1`}
       muted
       playsInline
       preload="metadata"
@@ -65,7 +68,7 @@ export function Thumb({ url, className }: { url: string | null; className?: stri
 export function DayGroup({ date, posts }: { date: string; posts: ScheduledPost[] }) {
   const byVideo = new Map<string, ScheduledPost[]>();
   for (const p of posts) {
-    const k = p.mediaUrl ?? p.text;
+    const k = videoKey(p);
     if (!byVideo.has(k)) byVideo.set(k, []);
     byVideo.get(k)!.push(p);
   }

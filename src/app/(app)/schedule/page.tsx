@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Card } from "@/components/ui/card";
-import { getOverview } from "@/lib/blotato";
+import { getOverview, videoKey } from "@/lib/blotato";
 import { DayGroup, FailureBanner, dayKey } from "@/components/queue-ui";
 import type { ScheduledPost } from "@/lib/blotato";
 
@@ -17,7 +17,7 @@ export default async function SchedulePage() {
     groups.get(k)!.push(p);
   }
   const entries = [...groups.entries()];
-  const videos = new Set(o.schedule.map((s) => s.mediaUrl ?? s.text)).size;
+  const videos = new Set(o.schedule.map(videoKey)).size;
 
   return (
     <div className="container-page py-8 max-w-5xl">
