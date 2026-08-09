@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, ArrowUpRight } from "lucide-react";
-import { PLATFORM_COLOR, PLATFORM_LABEL, videoKey, type Platform, type ScheduledPost } from "@/lib/blotato";
+import { PLATFORM_COLOR, PLATFORM_LABEL, videoKey, type Platform, type ScheduledPost } from "@/lib/blotato-shared";
 import { cn } from "@/lib/utils";
 import { VideoThumb } from "@/components/video-thumb";
 

@@ -8,7 +8,7 @@ import {
   videoKey,
   type Platform,
   type ScheduledPost,
-} from "@/lib/blotato";
+} from "@/lib/blotato-shared";
 import { DayGroup, dayKey } from "@/components/queue-ui";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
