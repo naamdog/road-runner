@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +26,31 @@ export function VideoThumb({
   caption?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const posterRef = useRef<HTMLVideoElement | null>(null);
+
+  /**
+   * Chrome treats `preload="metadata"` as advisory and here declined to load at
+   * all (readyState stayed 0, no request ever made), so posters never appeared.
+   * Calling load() explicitly once the row scrolls into view forces it — and
+   * keeps the list lazy, which is what stopped the tab freezing earlier.
+   */
+  useEffect(() => {
+    const el = posterRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            el.load();
+            io.disconnect();
+          }
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [url]);
 
   useEffect(() => {
     if (!open) return;
@@ -72,6 +97,7 @@ export function VideoThumb({
           to decode — a couple of extra range requests, and a real poster.
         */}
         <video
+          ref={posterRef}
           src={src}
           muted
           playsInline
