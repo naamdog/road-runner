@@ -9,12 +9,19 @@ const ALL: Platform[] = ["instagram", "youtube", "tiktok", "facebook", "linkedin
 
 export default async function AccountsPage() {
   let accounts: Awaited<ReturnType<typeof getAccounts>> = [];
-  let counts = new Map<string, number>();
+  const counts = new Map<string, number>();
+  // What each platform actually posts to. For Facebook the connected login is a
+  // personal profile ("Michael Ross Maitland") but posts land on a Page, so show
+  // the Page — that's the thing you care about.
+  const target = new Map<string, string>();
   let error: string | null = null;
   try {
     const [a, schedule] = await Promise.all([getAccounts(), getSchedule()]);
     accounts = a;
-    for (const s of schedule) counts.set(s.platform, (counts.get(s.platform) ?? 0) + 1);
+    for (const s of schedule) {
+      counts.set(s.platform, (counts.get(s.platform) ?? 0) + 1);
+      if (s.accountLabel && !target.has(s.platform)) target.set(s.platform, s.accountLabel);
+    }
   } catch (e) {
     error = e instanceof Error ? e.message : "Could not reach Blotato";
   }
@@ -55,7 +62,8 @@ export default async function AccountsPage() {
                     {conn.length > 0 ? (
                       <>
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                          {conn.map((c) => c.username || c.fullname || c.id).join(", ")}
+                          {target.get(p) ??
+                            conn.map((c) => c.username || c.fullname || c.id).join(", ")}
                         </p>
                         <p className="text-xs mt-2 tabular-nums">
                           <span className="text-foreground font-medium">{queued}</span>
