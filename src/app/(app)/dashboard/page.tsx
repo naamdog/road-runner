@@ -1,328 +1,158 @@
 import Link from "next/link";
-import {
-  ArrowUpRight,
-  CalendarDays,
-  CheckCircle2,
-  Link2,
-  Plus,
-  Sparkles,
-  Timer,
-  TriangleAlert,
-  TrendingUp,
-} from "lucide-react";
 import type { Metadata } from "next";
-import { and, count, eq, gte, sql } from "drizzle-orm";
-import { db } from "@/lib/db";
-import { post, postTarget, connection, tubePost } from "@/lib/db/schema";
-import { requireUser } from "@/lib/session";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { PlatformIcon } from "@/components/platform-icon";
-import { BrandChip } from "@/components/brand-chip";
-import { PLATFORM_META, type Platform } from "@/lib/platforms";
-import { Separator } from "@/components/ui/separator";
-import { getOrCreateBrands } from "@/lib/brands";
-import { readActiveBrandCookie } from "@/lib/active-brand";
+import { CalendarDays, Film, Link2, Layers, ArrowUpRight, CircleAlert } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { getOverview, SCHEDULE_LIMIT, PLATFORM_COLOR, PLATFORM_LABEL } from "@/lib/blotato";
+import { DayGroup, FailureBanner, dayKey, fmtDay } from "@/components/queue-ui";
+import type { ScheduledPost } from "@/lib/blotato";
 
 export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const session = await requireUser();
-  const userId = session.user.id;
+  const o = await getOverview();
 
-  const brands = await getOrCreateBrands(userId);
-  const cookieValue = await readActiveBrandCookie();
-  const activeBrand =
-    brands.find((b) => b.id === cookieValue) ??
-    brands.find((b) => b.isDefault) ??
-    brands[0];
+  if (o.error) {
+    return (
+      <div className="container-page py-8 max-w-6xl">
+        <Card className="p-6 border-destructive/40 bg-destructive/5">
+          <div className="flex items-start gap-3">
+            <CircleAlert className="size-5 text-destructive shrink-0 mt-0.5" />
+            <div>
+              <h2 className="font-semibold">Can&apos;t reach Blotato</h2>
+              <p className="text-sm text-muted-foreground mt-1">{o.error}</p>
+              <p className="text-sm text-muted-foreground mt-2">
+                Check <code className="text-foreground">BLOTATO_API_KEY</code> is set and valid.
+              </p>
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
-  const [stats, upcoming, recentPublished, connections] = await Promise.all([
-    getStats(userId, activeBrand?.id),
-    getUpcoming(userId, activeBrand?.id),
-    getRecentPublished(userId, activeBrand?.id),
-    getConnections(userId, activeBrand?.id),
-  ]);
+  // Group the next fortnight so the dashboard shows shape, not just a number.
+  const upcoming = o.schedule.filter((s) => new Date(s.scheduledAt).getTime() >= Date.now());
+  const groups = new Map<string, ScheduledPost[]>();
+  for (const p of upcoming.slice(0, 40)) {
+    const k = dayKey(p.scheduledAt);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(p);
+  }
+  const firstGroups = [...groups.entries()].slice(0, 5);
 
-  const firstName = session.user.name.split(" ")[0];
+  const perPlatform = new Map<string, number>();
+  for (const s of o.schedule) perPlatform.set(s.platform, (perPlatform.get(s.platform) ?? 0) + 1);
 
   return (
     <div className="container-page py-8 max-w-6xl">
-      <div className="flex items-start justify-between gap-4 mb-7">
+      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {greeting()}, {firstName}.
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Mission control — what's scheduled, what's already live, and which
-            platforms are plugged in. No spreadsheet, no five open tabs.
-          </p>
-          <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
-            {activeBrand ? (
-              <>
-                Showing{" "}
-                <BrandChip name={activeBrand.name} color={activeBrand.color} />
-              </>
-            ) : (
-              <>Here's what's going on today.</>
-            )}
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1 max-w-prose">
+            Everything queued up across your platforms. Blotato does the publishing —
+            this is the view of what&apos;s coming, what went out, and what needs a nudge.
           </p>
         </div>
-        <Button asChild variant="brand">
-          <Link href="/compose" className="gap-1.5">
-            <Plus className="size-4" />
-            New Short / Reel
-          </Link>
-        </Button>
+        <Link
+          href="/schedule"
+          className="text-sm text-brand hover:underline inline-flex items-center gap-1 shrink-0"
+        >
+          Full schedule <ArrowUpRight className="size-3.5" />
+        </Link>
       </div>
 
-      {stats.failed > 0 || stats.needsReconnect > 0 ? (
-        <Link
-          href={stats.failed > 0 ? "/scheduled" : "/connections"}
-          className="flex items-center gap-3 mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 transition-colors hover:bg-destructive/15"
-        >
-          <TriangleAlert className="size-5 text-destructive shrink-0" />
-          <div className="flex-1 text-sm">
-            <span className="font-medium text-foreground">Needs attention.</span>{" "}
-            <span className="text-muted-foreground">
-              {[
-                stats.failed > 0
-                  ? `${stats.failed} post${stats.failed === 1 ? "" : "s"} failed to publish`
-                  : null,
-                stats.needsReconnect > 0
-                  ? `${stats.needsReconnect} account${stats.needsReconnect === 1 ? "" : "s"} need${stats.needsReconnect === 1 ? "s" : ""} reconnecting`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-              . These won't fix themselves — take a look.
+      <div className="space-y-4">
+        <FailureBanner count={o.failed.length} />
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Stat icon={Film} label="Videos queued" value={o.videoCount} accent />
+          <Stat icon={Layers} label="Posts scheduled" value={o.quotaUsed} />
+          <Stat icon={CalendarDays} label="Runs until" value={o.lastDate ? fmtDay(o.lastDate) : "—"} small />
+          <Stat icon={Link2} label="Accounts" value={o.accounts.length} href="/accounts" />
+        </div>
+
+        {/* The queue ceiling is the real operational constraint — show it plainly. */}
+        <Card className="p-5">
+          <div className="flex items-baseline justify-between gap-3 flex-wrap">
+            <h2 className="text-sm font-semibold">Queue capacity</h2>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {o.quotaUsed} of {SCHEDULE_LIMIT} slots used
             </span>
           </div>
-          <ArrowUpRight className="size-4 text-muted-foreground shrink-0" />
-        </Link>
-      ) : null}
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard
-          icon={CalendarDays}
-          label="Scheduled"
-          value={stats.scheduled}
-          accent
-        />
-        <StatCard
-          icon={CheckCircle2}
-          label="Posted this week"
-          value={stats.published7d}
-        />
-        <StatCard
-          icon={Link2}
-          label="Connected accounts"
-          value={stats.connections}
-          href="/connections"
-        />
-        <StatCard
-          icon={TrendingUp}
-          label="Posted this month"
-          value={stats.published30d}
-        />
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-5 mt-7">
-        <Card className="lg:col-span-2">
-          <div className="flex items-center justify-between p-5 pb-3">
-            <div>
-              <h2 className="text-base font-semibold tracking-tight">Up next</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Your next 8 posts.
-              </p>
-            </div>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/scheduled" className="gap-1">
-                See all
-                <ArrowUpRight className="size-3.5" />
-              </Link>
-            </Button>
+          <div className="mt-3 h-2.5 rounded-full bg-surface-3 overflow-hidden">
+            <div
+              className={
+                o.quotaPct >= 95 ? "h-full bg-destructive" : o.quotaPct >= 80 ? "h-full bg-warning" : "h-full bg-brand"
+              }
+              style={{ width: `${Math.min(100, o.quotaPct)}%` }}
+            />
           </div>
-          <Separator />
-          <CardContent className="p-0">
-            {upcoming.length === 0 ? (
-              <EmptyState
-                icon={Timer}
-                title="Nothing scheduled yet"
-                description="Drop a video, write a caption, pick your times. That's it."
-                actionLabel="Make your first post"
-                actionHref="/compose"
-              />
-            ) : (
-              <ul className="divide-y divide-border">
-                {upcoming.map((row) => (
-                  <li key={row.id} className="flex items-center gap-3 px-5 py-3.5">
-                    <PlatformIcon platform={row.platform} size={22} />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm text-foreground truncate">
-                        {row.caption || (
-                          <span className="text-subtle-foreground italic">
-                            (no caption)
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {PLATFORM_META[row.platform].name}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-sm tabular-nums">
-                        {formatTime(row.scheduledAt)}
-                      </div>
-                      <div className="text-xs text-muted-foreground tabular-nums">
-                        {formatDate(row.scheduledAt)}
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
+          <p className="text-xs text-muted-foreground mt-2.5">
+            {o.quotaPct >= 95
+              ? "Full. Nothing new can be scheduled until posts publish and free up slots."
+              : `${SCHEDULE_LIMIT - o.quotaUsed} slots free. Each video uses one slot per platform.`}
+          </p>
+          {perPlatform.size > 0 ? (
+            <div className="flex gap-4 mt-4 pt-4 border-t border-border flex-wrap">
+              {[...perPlatform.entries()].sort().map(([p, n]) => (
+                <div key={p} className="flex items-center gap-2">
+                  <span
+                    className="size-2 rounded-full"
+                    style={{ background: PLATFORM_COLOR[p as keyof typeof PLATFORM_COLOR] ?? "#888" }}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    {PLATFORM_LABEL[p as keyof typeof PLATFORM_LABEL] ?? p}
+                  </span>
+                  <span className="text-xs font-medium tabular-nums">{n}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </Card>
 
-        <div className="space-y-5">
-          <Card>
-            <div className="flex items-center justify-between p-5 pb-3">
-              <div>
-                <h2 className="text-base font-semibold tracking-tight">
-                  Platform connections
-                </h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Apps you can post to from this brand.
-                </p>
-              </div>
+        <Card className="overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
+            <div>
+              <h2 className="text-sm font-semibold">Coming up</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">The next few posting days.</p>
             </div>
-            <Separator />
-            <CardContent className="p-3">
-              {(["youtube", "instagram", "tiktok", "linkedin", "facebook"] as Platform[]).map(
-                (p) => {
-                  const meta = PLATFORM_META[p];
-                  const conns = connections.filter((c) => c.platform === p);
-                  return (
-                    <Link
-                      key={p}
-                      href="/connections"
-                      className="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-surface-2 transition-colors"
-                    >
-                      <PlatformIcon platform={p} size={20} />
-                      <span className="text-sm flex-1 truncate">{meta.shortName}</span>
-                      {conns.length > 0 ? (
-                        <Badge variant="success">
-                          {conns.length === 1 ? "On" : `${conns.length} accounts`}
-                        </Badge>
-                      ) : (
-                        <Badge variant="muted">Connect</Badge>
-                      )}
-                    </Link>
-                  );
-                }
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-5">
-              <div className="flex items-start gap-3">
-                <div className="size-9 rounded-md bg-brand/10 border border-brand/30 flex items-center justify-center shrink-0">
-                  <Sparkles className="size-4 text-brand" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold">Tip</h3>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    Space your apps 2–6 hours apart. The same hook lands fresh
-                    on each one.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+            <Link href="/schedule" className="text-xs text-brand hover:underline">See all</Link>
+          </div>
+          {firstGroups.length === 0 ? (
+            <div className="px-5 py-12 text-center">
+              <p className="text-sm text-muted-foreground">Nothing scheduled yet.</p>
+            </div>
+          ) : (
+            firstGroups.map(([date, posts]) => (
+              <DayGroup key={date} date={date} posts={posts} eager />
+            ))
+          )}
+        </Card>
       </div>
-
-      {recentPublished.length > 0 ? (
-        <div className="mt-7">
-          <h2 className="text-base font-semibold tracking-tight mb-3">
-            Just posted
-          </h2>
-          <Card>
-            <CardContent className="p-0">
-              <ul className="divide-y divide-border">
-                {recentPublished.map((row) => (
-                  <li
-                    key={row.id}
-                    className="flex items-center gap-3 px-5 py-3.5"
-                  >
-                    <PlatformIcon platform={row.platform} size={22} />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm text-foreground truncate">
-                        {row.caption || (
-                          <span className="text-subtle-foreground italic">
-                            (no caption)
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {row.publishedAt
-                          ? `Posted ${formatDate(row.publishedAt)}`
-                          : "Posted"}
-                      </div>
-                    </div>
-                    {row.publishedUrl ? (
-                      <a
-                        href={row.publishedUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-brand hover:underline shrink-0"
-                      >
-                        See it ↗
-                      </a>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        </div>
-      ) : null}
     </div>
   );
 }
 
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  accent,
-  href,
+function Stat({
+  icon: Icon, label, value, accent, href, small,
 }: {
   icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-  accent?: boolean;
-  href?: string;
+  label: string; value: number | string; accent?: boolean; href?: string; small?: boolean;
 }) {
   const inner = (
-    <div className="flex items-start justify-between">
-      <div>
-        <div className="text-xs uppercase tracking-wider text-muted-foreground">
-          {label}
-        </div>
-        <div className="text-3xl font-semibold tracking-tight tabular-nums mt-2">
+    <div className="flex items-start justify-between gap-2">
+      <div className="min-w-0">
+        <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
+        <div className={`${small ? "text-lg" : "text-3xl"} font-semibold tracking-tight tabular-nums mt-2 truncate`}>
           {value}
         </div>
       </div>
       <div
         className={
           accent
-            ? "size-8 rounded-md bg-brand/15 border border-brand/30 flex items-center justify-center"
-            : "size-8 rounded-md bg-surface-2 border border-border flex items-center justify-center"
+            ? "size-8 rounded-md bg-brand/15 border border-brand/30 grid place-items-center shrink-0"
+            : "size-8 rounded-md bg-surface-2 border border-border grid place-items-center shrink-0"
         }
       >
         <Icon className={accent ? "size-4 text-brand" : "size-4 text-muted-foreground"} />
@@ -331,269 +161,7 @@ function StatCard({
   );
   return (
     <Card className="p-5 transition-colors hover:bg-surface-2/40">
-      {href ? (
-        <Link href={href} className="block">
-          {inner}
-        </Link>
-      ) : (
-        inner
-      )}
+      {href ? <Link href={href} className="block">{inner}</Link> : inner}
     </Card>
   );
-}
-
-function EmptyState({
-  icon: Icon,
-  title,
-  description,
-  actionLabel,
-  actionHref,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  description: string;
-  actionLabel: string;
-  actionHref: string;
-}) {
-  return (
-    <div className="px-6 py-10 text-center">
-      <div className="size-11 mx-auto rounded-md bg-surface-2 border border-border flex items-center justify-center">
-        <Icon className="size-5 text-muted-foreground" />
-      </div>
-      <h3 className="mt-4 text-sm font-semibold">{title}</h3>
-      <p className="mt-1 text-sm text-muted-foreground max-w-sm mx-auto">
-        {description}
-      </p>
-      <Button asChild variant="brand" size="sm" className="mt-4">
-        <Link href={actionHref}>{actionLabel}</Link>
-      </Button>
-    </div>
-  );
-}
-
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 5) return "Still up";
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
-}
-
-function formatTime(d: Date) {
-  return new Intl.DateTimeFormat("en", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(d);
-}
-
-function formatDate(d: Date) {
-  return new Intl.DateTimeFormat("en", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  }).format(d);
-}
-
-// --- Queries (scoped by brand if provided) ---
-
-async function getStats(userId: string, brandId?: string) {
-  try {
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    const baseTargetWhere = brandId
-      ? and(eq(postTarget.userId, userId), eq(post.brandId, brandId))
-      : eq(postTarget.userId, userId);
-
-    const [
-      [scheduledRow],
-      [publishedRow7],
-      [publishedRow30],
-      [connectionsRow],
-      [failedShortRow],
-      [failedTubeRow],
-      [reconnectRow],
-    ] = await Promise.all([
-      db
-        .select({ c: count() })
-        .from(postTarget)
-        .innerJoin(post, eq(postTarget.postId, post.id))
-        .where(and(baseTargetWhere, eq(postTarget.status, "scheduled"))),
-      db
-        .select({ c: count() })
-        .from(postTarget)
-        .innerJoin(post, eq(postTarget.postId, post.id))
-        .where(
-          and(
-            baseTargetWhere,
-            eq(postTarget.status, "published"),
-            gte(postTarget.publishedAt, sevenDaysAgo)
-          )
-        ),
-      db
-        .select({ c: count() })
-        .from(postTarget)
-        .innerJoin(post, eq(postTarget.postId, post.id))
-        .where(
-          and(
-            baseTargetWhere,
-            eq(postTarget.status, "published"),
-            gte(postTarget.publishedAt, thirtyDaysAgo)
-          )
-        ),
-      db
-        .select({ c: count() })
-        .from(connection)
-        .where(
-          brandId
-            ? and(
-                eq(connection.userId, userId),
-                eq(connection.brandId, brandId),
-                eq(connection.isActive, true)
-              )
-            : and(eq(connection.userId, userId), eq(connection.isActive, true))
-        ),
-      // Failed short-form targets — these silently drop out of every other
-      // count, so surface them explicitly.
-      db
-        .select({ c: count() })
-        .from(postTarget)
-        .innerJoin(post, eq(postTarget.postId, post.id))
-        .where(and(baseTargetWhere, eq(postTarget.status, "failed"))),
-      // Failed long-form (TubeRunner) posts.
-      db
-        .select({ c: count() })
-        .from(tubePost)
-        .where(
-          brandId
-            ? and(
-                eq(tubePost.userId, userId),
-                eq(tubePost.brandId, brandId),
-                eq(tubePost.status, "failed")
-              )
-            : and(eq(tubePost.userId, userId), eq(tubePost.status, "failed"))
-        ),
-      // Connections flagged as needing the operator to reconnect.
-      db
-        .select({ c: count() })
-        .from(connection)
-        .where(
-          brandId
-            ? and(
-                eq(connection.userId, userId),
-                eq(connection.brandId, brandId),
-                eq(connection.needsReconnect, true)
-              )
-            : and(
-                eq(connection.userId, userId),
-                eq(connection.needsReconnect, true)
-              )
-        ),
-    ]);
-
-    return {
-      scheduled: Number(scheduledRow?.c ?? 0),
-      published7d: Number(publishedRow7?.c ?? 0),
-      published30d: Number(publishedRow30?.c ?? 0),
-      connections: Number(connectionsRow?.c ?? 0),
-      failed: Number(failedShortRow?.c ?? 0) + Number(failedTubeRow?.c ?? 0),
-      needsReconnect: Number(reconnectRow?.c ?? 0),
-    };
-  } catch {
-    return {
-      scheduled: 0,
-      published7d: 0,
-      published30d: 0,
-      connections: 0,
-      failed: 0,
-      needsReconnect: 0,
-    };
-  }
-}
-
-async function getUpcoming(userId: string, brandId?: string) {
-  try {
-    const rows = await db
-      .select({
-        id: postTarget.id,
-        platform: postTarget.platform,
-        scheduledAt: postTarget.scheduledAt,
-        caption: sql<string>`COALESCE(${postTarget.caption}, ${post.caption})`,
-      })
-      .from(postTarget)
-      .innerJoin(post, eq(postTarget.postId, post.id))
-      .where(
-        brandId
-          ? and(
-              eq(postTarget.userId, userId),
-              eq(postTarget.status, "scheduled"),
-              eq(post.brandId, brandId)
-            )
-          : and(
-              eq(postTarget.userId, userId),
-              eq(postTarget.status, "scheduled")
-            )
-      )
-      .orderBy(sql`${postTarget.scheduledAt} ASC`)
-      .limit(8);
-    return rows;
-  } catch {
-    return [];
-  }
-}
-
-async function getRecentPublished(userId: string, brandId?: string) {
-  try {
-    const rows = await db
-      .select({
-        id: postTarget.id,
-        platform: postTarget.platform,
-        publishedAt: postTarget.publishedAt,
-        publishedUrl: postTarget.publishedUrl,
-        caption: sql<string>`COALESCE(${postTarget.caption}, ${post.caption})`,
-      })
-      .from(postTarget)
-      .innerJoin(post, eq(postTarget.postId, post.id))
-      .where(
-        brandId
-          ? and(
-              eq(postTarget.userId, userId),
-              eq(postTarget.status, "published"),
-              eq(post.brandId, brandId)
-            )
-          : and(
-              eq(postTarget.userId, userId),
-              eq(postTarget.status, "published")
-            )
-      )
-      .orderBy(sql`${postTarget.publishedAt} DESC`)
-      .limit(5);
-    return rows;
-  } catch {
-    return [];
-  }
-}
-
-async function getConnections(userId: string, brandId?: string) {
-  try {
-    const rows = await db
-      .select({
-        platform: connection.platform,
-        accountName: connection.accountName,
-      })
-      .from(connection)
-      .where(
-        brandId
-          ? and(
-              eq(connection.userId, userId),
-              eq(connection.brandId, brandId),
-              eq(connection.isActive, true)
-            )
-          : and(eq(connection.userId, userId), eq(connection.isActive, true))
-      );
-    return rows;
-  } catch {
-    return [];
-  }
 }
