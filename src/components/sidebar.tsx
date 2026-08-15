@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, CalendarDays, AlertTriangle, Link2, ExternalLink } from "lucide-react";
+import { LayoutDashboard, CalendarDays, AlertTriangle, Link2, Upload, ExternalLink } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ const items = [
   { href: "/schedule", label: "Schedule", icon: CalendarDays },
   { href: "/failed", label: "Failed", icon: AlertTriangle },
   { href: "/accounts", label: "Accounts", icon: Link2 },
+  { href: "/import", label: "Bulk import", icon: Upload },
 ];
 
 export function Sidebar() {

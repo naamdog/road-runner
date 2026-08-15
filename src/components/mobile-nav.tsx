@@ -8,6 +8,7 @@ import {
   CalendarDays,
   AlertTriangle,
   Link2,
+  Upload,
   Menu,
   X,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const items = [
   { href: "/schedule", label: "Schedule", icon: CalendarDays },
   { href: "/failed", label: "Failed", icon: AlertTriangle },
   { href: "/accounts", label: "Accounts", icon: Link2 },
+  { href: "/import", label: "Bulk import", icon: Upload },
 ];
 
 export function MobileNav() {
